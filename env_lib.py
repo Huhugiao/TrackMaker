@@ -759,7 +759,7 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
     elif attacker_captured:
         terminated = True
         info['reason'] = 'attacker_caught_target'
-        reward -= 5.0  # 降低惩罚，让defender有更多探索空间
+        reward -= 10.0  # 降低惩罚，让defender有更多探索空间
     elif defender_collision:
         terminated = True
         reward -= success_reward

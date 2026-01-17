@@ -186,7 +186,7 @@ class DefenderGlobalPolicy:
         根据观测和特权状态计算动作
 
         Args:
-            obs: Defender观测 (72维) - 仅用于兼容接口，实际使用privileged_state
+            obs: Defender观测 (71维) - 仅用于兼容接口，实际使用privileged_state
             privileged_state: 特权状态字典，包含:
                 - defender: {x, y, theta}
                 - attacker: {x, y, theta}
