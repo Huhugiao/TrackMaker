@@ -103,6 +103,11 @@ class TADEnv(gym.Env):
     def _get_defender_observation(self, use_privileged=False, gru_prediction=None):
         """
         Get defender observation.
+        
+        观测结构 (71维):
+          [0:5]  = attacker_info: [distance, bearing, fov_edge, is_visible, unobserved_time]
+          [5:7]  = target_info: [distance, bearing]
+          [7:71] = radar (64维)
 
         Args:
             use_privileged: If True, use true attacker position even when occluded
@@ -171,30 +176,27 @@ class TADEnv(gym.Env):
             normalized_bearing = 0.0
             normalized_fov_edge = 1.0
 
+        # attacker_info [0:5]
         obs[0] = normalized_distance
         obs[1] = normalized_bearing
         obs[2] = normalized_fov_edge
-
-        # 合并 in_fov 和 occluded 为单一 is_visible (在FOV内且未被遮挡)
         obs[3] = 1.0 if is_visible else 0.0
-
         max_unobserved = float(EnvParameters.MAX_UNOBSERVED_STEPS)
         normalized_unobserved = np.clip((self.steps_since_observed / max_unobserved) * 2.0 - 1.0, -1.0, 1.0)
         obs[4] = normalized_unobserved
 
-        obs[5:5+64] = self._sense_agent_radar(self.defender, num_rays=self.radar_rays, full_circle=True)
-
+        # target_info [5:7]
         target_rel_vec, target_dist = self._get_relative_position(self.defender, self.target)
         target_map_diagonal = math.hypot(self.width, self.height)
         target_normalized_dist = np.clip((target_dist / target_map_diagonal) * 2.0 - 1.0, -1.0, 1.0)
-
         target_abs_ang = math.atan2(target_rel_vec[1], target_rel_vec[0])
         target_rel_ang = self._normalize_angle(math.degrees(target_abs_ang) - self.defender['theta'])
         target_normalized_bearing = np.clip(target_rel_ang / 180.0, -1.0, 1.0)
+        obs[5] = target_normalized_dist
+        obs[6] = target_normalized_bearing
 
-        # Store distance and bearing only (not rel_x, rel_y)
-        obs[69] = target_normalized_dist
-        obs[70] = target_normalized_bearing
+        # radar [7:71]
+        obs[7:71] = self._sense_agent_radar(self.defender, num_rays=self.radar_rays, full_circle=True)
 
         return obs
 
@@ -328,6 +330,10 @@ class TADEnv(gym.Env):
         self.step_count += 1
         defender_action, attacker_action = self._parse_actions(action, attacker_action)
 
+        # 保存移动前的位置（用于奖励计算）
+        self.prev_defender_pos = self.defender.copy()
+        self.prev_attacker_pos = self.attacker.copy()
+
         if defender_action is not None:
             defender_phys = self._control_to_physical(defender_action, 'defender')
             if defender_phys is not None:
@@ -349,11 +355,8 @@ class TADEnv(gym.Env):
         if len(self.attacker_trajectory) > max_len:
             self.attacker_trajectory = self.attacker_trajectory[-max_len:]
 
-        if self.last_defender_pos is not None:
-            self.prev_defender_pos = self.last_defender_pos.copy()
+        # 更新 last_xxx_pos（用于轨迹记录等）
         self.last_defender_pos = self.defender.copy()
-        if self.last_attacker_pos is not None:
-            self.prev_attacker_pos = self.last_attacker_pos.copy()
         self.last_attacker_pos = self.attacker.copy()
 
         agent_radius = float(getattr(map_config, 'agent_radius', self.pixel_size * 0.5))

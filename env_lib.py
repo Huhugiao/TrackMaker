@@ -380,29 +380,13 @@ def reward_calculate(tracker, target, prev_tracker=None, prev_target=None,
     reward += alpha * (prev_dist - curr_dist)
     reward -= 0.01
 
+    # 雷达信息可用于未来扩展（如障碍物接近惩罚），当前仅记录最小边缘距离
     if radar is not None and len(radar) > 0:
         max_range = float(getattr(map_config, 'fov_range', 250.0))
         agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
         min_radar_normalized = float(min(radar))
         curr_center_dist = (min_radar_normalized + 1.0) * 0.5 * max_range
         curr_edge_dist = curr_center_dist - agent_radius
-        prev_edge_dist = curr_edge_dist
-        obstacle_velocity = curr_edge_dist - prev_edge_dist
-        velocity_coef = 0.02
-
-        if obstacle_velocity < 0:
-            proximity_penalty = velocity_coef * obstacle_velocity
-            reward += proximity_penalty
-            info['obstacle_approaching'] = True
-            info['obstacle_velocity'] = float(obstacle_velocity)
-            info['proximity_penalty'] = float(proximity_penalty)
-        else:
-            proximity_reward = velocity_coef * obstacle_velocity
-            reward += proximity_reward
-            info['obstacle_receding'] = True
-            info['obstacle_velocity'] = float(obstacle_velocity)
-            info['proximity_reward'] = float(proximity_reward)
-
         info['min_edge_distance'] = float(curr_edge_dist)
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
@@ -614,31 +598,42 @@ def _resolve_obstacle_collision(old_pos, new_pos):
     return new_pos
 
 def agent_move_velocity(agent, angle_delta, speed, max_speed, role=None):
+    """
+    更新智能体的位置和朝向
+    
+    Args:
+        agent: 智能体状态字典
+        angle_delta: 角速度（度/步）
+        speed: 目标速度
+        max_speed: 最大速度
+        role: 'defender' 或 'attacker'
+    
+    Note:
+        - Defender 的碰撞检测在 env.py 的 step() 中单独处理
+        - Attacker 在此函数内处理碰撞（碰撞时回滚位置）
+    """
     old_state = dict(agent)
     prev_speed = agent.get('v', 0.0)
     speed = float(np.clip(speed, 0.0, max_speed))
 
-    if role == 'attacker':
-        max_acc = float(getattr(map_config, 'attacker_max_acc', 0.6))
-        speed_change = speed - prev_speed
-        speed_change = np.clip(speed_change, -max_acc, max_acc)
-        speed = prev_speed + speed_change
-
+    # 根据角色获取参数
     if role == 'defender':
         max_turn = float(getattr(map_config, 'defender_max_angular_speed', 6.0))
     elif role == 'attacker':
+        # Attacker 有加速度限制
+        max_acc = float(getattr(map_config, 'attacker_max_acc', 0.6))
+        speed_change = np.clip(speed - prev_speed, -max_acc, max_acc)
+        speed = prev_speed + speed_change
         max_turn = float(getattr(map_config, 'attacker_max_angular_speed', 12.0))
-    elif role == 'tracker':
-        max_turn = float(getattr(map_config, 'tracker_max_angular_speed', 10.0))
-    elif role == 'target':
-        max_turn = float(getattr(map_config, 'target_max_angular_speed', 12.0))
     else:
         max_turn = 10.0
 
+    # 更新朝向
     angle_delta = float(np.clip(angle_delta, -max_turn, max_turn))
     new_theta = (agent.get('theta', 0.0) + angle_delta) % 360.0
     agent['theta'] = float(new_theta)
 
+    # 更新位置
     rad_theta = math.radians(new_theta)
     agent['x'] = float(np.clip(
         agent['x'] + speed * math.cos(rad_theta),
@@ -651,12 +646,10 @@ def agent_move_velocity(agent, angle_delta, speed, max_speed, role=None):
 
     agent['v'] = speed
 
+    # Attacker 碰撞时回滚位置（Defender 的碰撞在 env.step() 中单独检测）
     if role == 'attacker':
         return _resolve_obstacle_collision(old_state, agent)
-    elif role == 'target':
-        return _resolve_obstacle_collision(old_state, agent)
-    else:
-        return agent
+    return agent
 
 def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_attacker=None,
                          defender_collision=False, attacker_collision=False,
@@ -674,15 +667,7 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
     reward = 0.0
     terminated = False
 
-    dx_def_att = (defender['x'] + map_config.pixel_size * 0.5) - (attacker['x'] + map_config.pixel_size * 0.5)
-    dy_def_att = (defender['y'] + map_config.pixel_size * 0.5) - (attacker['y'] + map_config.pixel_size * 0.5)
-    curr_dist_def_att = math.hypot(dx_def_att, dy_def_att)
-
-    dx_att_tgt = (attacker['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
-    dy_att_tgt = (attacker['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
-    curr_dist_att_tgt = math.hypot(dx_att_tgt, dy_att_tgt)
-
-    # Removed distance-based reward - only keep time penalty
+    # 时间惩罚
     reward -= 0.01
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
@@ -690,19 +675,19 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
     if defender_captured:
         terminated = True
         info['reason'] = 'defender_caught_attacker'
+        info['win'] = True
         reward += success_reward
     elif attacker_captured:
         terminated = True
         info['reason'] = 'attacker_caught_target'
+        info['win'] = False
         reward -= success_reward
     elif defender_collision:
         terminated = True
         reward -= success_reward
         info['reason'] = 'defender_collision'
-    elif attacker_collision:
-        terminated = True
-        reward -= success_reward
-        info['reason'] = 'attacker_collision'
+        info['win'] = False
+    # attacker_collision 不影响 episode 终止，仅记录在 info 中
 
     return float(reward), bool(terminated), False, info
 
@@ -718,9 +703,11 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
     特点：
     - 无时间惩罚
     - defender捕获attacker: +20
-    - attacker到达target或碰撞: -20
+    - attacker到达target: -10（降低惩罚以增加探索）
+    - defender碰撞障碍物: -20
+    - attacker碰撞障碍物: 不结束episode
     - 超时算defender胜利: +20
-    - 有defender-target距离奖励，权重为6
+    - 有defender-target距离奖励
     """
     info = {
         'capture_progress_defender': int(capture_progress_defender),
@@ -759,22 +746,17 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
             reward += distance_reward
 
     # 终止奖励
-    if defender_captured:
-        terminated = True
-        info['reason'] = 'defender_caught_attacker'
-        reward += success_reward
-    elif attacker_captured:
+    if attacker_captured:
         terminated = True
         info['reason'] = 'attacker_caught_target'
+        info['win'] = False
         reward -= 10.0  # 降低惩罚，让defender有更多探索空间
     elif defender_collision:
         terminated = True
         reward -= success_reward
         info['reason'] = 'defender_collision'
-    elif attacker_collision:
-        terminated = True
-        reward -= success_reward
-        info['reason'] = 'attacker_collision'
+        info['win'] = False
+    # attacker_collision 不影响 episode 终止，仅记录在 info 中
 
     return float(reward), bool(terminated), False, info
 
@@ -790,7 +772,9 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
     特点：
     - 有时间惩罚：每步-0.02（总共约-10）
     - defender捕获attacker: +20
-    - attacker到达target或碰撞: -20
+    - attacker到达target: -20
+    - defender碰撞障碍物: -20
+    - attacker碰撞障碍物: 不结束episode
     - 超时算defender失败: 无额外奖励
     - 使用GRU预测器
     """
@@ -814,19 +798,19 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
     if defender_captured:
         terminated = True
         info['reason'] = 'defender_caught_attacker'
+        info['win'] = True
         reward += success_reward
     elif attacker_captured:
         terminated = True
         info['reason'] = 'attacker_caught_target'
+        info['win'] = False
         reward -= success_reward
     elif defender_collision:
         terminated = True
         reward -= success_reward
         info['reason'] = 'defender_collision'
-    elif attacker_collision:
-        terminated = True
-        reward -= success_reward
-        info['reason'] = 'attacker_collision'
+        info['win'] = False
+    # attacker_collision 不影响 episode 终止，仅记录在 info 中
 
     return float(reward), bool(terminated), False, info
 

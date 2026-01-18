@@ -80,7 +80,7 @@ class TrainingParameters:
     
     # --- 模仿学习 (IL) 设置 ---
     # 训练模式: 'mixed' (IL+RL), 'rl' (Pure RL), 'il' (Pure IL)
-    TRAINING_MODE = "mixed"  # 测试模式：纯RL训练（无模仿学习）
+    TRAINING_MODE = "rl"  # 测试模式：纯RL训练（无模仿学习）
     
     # IL 余弦退火参数
     IL_INITIAL_WEIGHT = 1.0      # 初始IL权重
@@ -96,8 +96,8 @@ class TrainingParameters:
     RANDOM_OPPONENT_WEIGHTS = {
         "attacker": {
             # "attacker_apf": 0.5,
-            "attacker_global": 1.0,  # 全局路径规划Attacker，已禁用用于测试
-            # "attacker_static": 1.0,  # 测试用：静止的Attacker
+            # "attacker_global": 1.0,  # 全局路径规划Attacker
+            "attacker_static": 1.0,  # 测试用：静止的Attacker
         }
     }
 
@@ -111,8 +111,9 @@ class NetParameters:
     RADAR_EMBED_DIM = 8      # 雷达编码后维度
     
     # Defender Observation (71维)
-    # [attacker_info(5), radar(64), target_info(2)]
+    # [attacker_info(5), target_info(2), radar(64)]
     # attacker_info: [distance, bearing, fov_edge, is_visible, unobserved_time]
+    # target_info: [distance, bearing]
     DEFENDER_SCALAR_LEN = 5  # Defender标量部分 (attacker_info)
     TARGET_SCALAR_LEN = 2    # Target标量部分 (到Target的距离和方位)
     
