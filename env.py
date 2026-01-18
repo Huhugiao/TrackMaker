@@ -391,7 +391,8 @@ class TADEnv(gym.Env):
                 capture_progress_defender=int(self._capture_counter_defender),
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt
             )
         elif self.reward_mode == 'chase':
             reward, terminated, truncated, info = env_lib.reward_calculate_chase(
@@ -405,7 +406,8 @@ class TADEnv(gym.Env):
                 capture_progress_defender=int(self._capture_counter_defender),
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt
             )
         else:  # 'standard'
             reward, terminated, truncated, info = env_lib.reward_calculate_tad(
@@ -419,7 +421,8 @@ class TADEnv(gym.Env):
                 capture_progress_defender=int(self._capture_counter_defender),
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt
             )
 
         cur_dist_defender = float(math.hypot(self.defender['x'] - self.attacker['x'], self.defender['y'] - self.attacker['y']))
@@ -474,6 +477,10 @@ class TADEnv(gym.Env):
         )
 
         self.step_count = 0
+        # Calculate initial distance between defender and target
+        dx_init = (self.defender['x'] + self.pixel_size * 0.5) - (self.target['x'] + self.pixel_size * 0.5)
+        dy_init = (self.defender['y'] + self.pixel_size * 0.5) - (self.target['y'] + self.pixel_size * 0.5)
+        self.initial_dist_def_tgt = math.hypot(dx_init, dy_init)
         self.defender_trajectory = []
         self.attacker_trajectory = []
 

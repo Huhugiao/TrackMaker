@@ -711,7 +711,7 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
                              defender_collision=False, attacker_collision=False,
                              defender_captured=False, attacker_captured=False,
                              capture_progress_defender=0, capture_progress_attacker=0,
-                             capture_required_steps=0, radar=None):
+                             capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
     """
     奖励函数用于训练保护target的skill
 
@@ -740,16 +740,23 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
 
-    # 距离奖励：引导defender到target，权重为6
-    distance_reward_weight = 20.0
-    if prev_defender is not None:
+    # 距离奖励：按进度比例给奖励，初始距离为基准
+    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > map_config.capture_radius:
         prev_dx_def_tgt = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
         prev_dy_def_tgt = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
         prev_dist_def_tgt = math.hypot(prev_dx_def_tgt, prev_dy_def_tgt)
 
-        # 距离减小给正奖励，距离增大给负奖励
-        distance_reward = (prev_dist_def_tgt - curr_dist_def_tgt) / getattr(map_config, 'map_diagonal', math.hypot(map_config.width, map_config.height))
-        reward += distance_reward * distance_reward_weight
+        # 计算边界距离（实际距离 - 抓捕半径）
+        capture_radius = float(getattr(map_config, 'capture_radius', 20.0))
+        prev_boundary_dist = max(0.0, prev_dist_def_tgt - capture_radius)
+        curr_boundary_dist = max(0.0, curr_dist_def_tgt - capture_radius)
+        initial_boundary_dist = max(0.0, initial_dist_def_tgt - capture_radius)
+
+        # 进度奖励：距离减小的比例 * success_reward
+        if initial_boundary_dist > 0:
+            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
+            distance_reward = distance_progress * success_reward
+            reward += distance_reward
 
     # 终止奖励
     if defender_captured:

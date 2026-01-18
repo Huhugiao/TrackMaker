@@ -3,3 +3,4 @@ models/
 *.pyc
 *.nbi
 *.nbc
+*.log

@@ -14,13 +14,14 @@ from ppo.util import build_critic_observation, update_perf
 import map_config
 from map_config import EnvParameters
 from env import TADEnv
-from rule_policies import AttackerAPFPolicy, AttackerGlobalPolicy
+from rule_policies import AttackerAPFPolicy, AttackerGlobalPolicy, AttackerStaticPolicy
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
 ATTACKER_POLICY_REGISTRY = {
     'attacker_apf': AttackerAPFPolicy,
-    'attacker_global': AttackerGlobalPolicy
+    'attacker_global': AttackerGlobalPolicy,
+    'attacker_static': AttackerStaticPolicy
 }
 
 

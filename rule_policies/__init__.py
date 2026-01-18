@@ -17,6 +17,7 @@ Rule Policies模块
 from .apf import APFPolicy, APFNavigator
 from .attacker_apf import AttackerAPFPolicy, create_attacker_apf_policy
 from .attacker_global import AttackerGlobalPolicy, create_attacker_global_policy
+from .attacker_static import AttackerStaticPolicy
 from .defender_apf import (
     DefenderAPFPolicy,
     DualTargetDefenderAPFPolicy,
@@ -34,6 +35,7 @@ __all__ = [
     'create_attacker_apf_policy',
     'AttackerGlobalPolicy',
     'create_attacker_global_policy',
+    'AttackerStaticPolicy',
     # Defender策略
     'DefenderAPFPolicy',
     'DualTargetDefenderAPFPolicy',

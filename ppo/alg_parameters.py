@@ -80,12 +80,12 @@ class TrainingParameters:
     
     # --- 模仿学习 (IL) 设置 ---
     # 训练模式: 'mixed' (IL+RL), 'rl' (Pure RL), 'il' (Pure IL)
-    TRAINING_MODE = "mixed"
+    TRAINING_MODE = "mixed"  # 测试模式：纯RL训练（无模仿学习）
     
     # IL 余弦退火参数
     IL_INITIAL_WEIGHT = 1.0      # 初始IL权重
     IL_FINAL_WEIGHT = 0.0        # 最终IL权重
-    IL_ANNEAL_STEPS = 6_000_000 # 退火步数 (约25%训练)
+    IL_ANNEAL_STEPS = 1e7  # 退火步数
     
     # --- 对手策略设置 ---
     # 对手类型: 'random' (按权重随机采样对手策略)
@@ -96,7 +96,8 @@ class TrainingParameters:
     RANDOM_OPPONENT_WEIGHTS = {
         "attacker": {
             # "attacker_apf": 0.5,
-            "attacker_global": 0.5,
+            "attacker_global": 1.0,  # 全局路径规划Attacker，已禁用用于测试
+            # "attacker_static": 1.0,  # 测试用：静止的Attacker
         }
     }
 
@@ -173,7 +174,7 @@ class RecordingParameters:
     EVAL_INTERVAL = 100000    # 评估间隔 (步数)
     SAVE_INTERVAL = 300000    # 保存模型间隔 (步数)
     BEST_INTERVAL = 0         # (未使用)
-    GIF_INTERVAL = 100000     # 保存GIF间隔 (步数)
+    GIF_INTERVAL = 500000     # 保存GIF间隔 (步数)
     EVAL_EPISODES = 48        # 评估时的对局数
     
     # Loss 名称列表 (用于日志记录)
