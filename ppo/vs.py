@@ -28,8 +28,8 @@ from map_config import EnvParameters, set_obstacle_density
 from env import TrackingEnv
 import env_lib
 from ppo.model import Model
-from rule_policies import (
 from ppo.alg_parameters import SetupParameters
+from rule_policies import (
     DefenderAPFPolicy,
     AttackerAPFPolicy,
     AttackerGlobalPolicy,

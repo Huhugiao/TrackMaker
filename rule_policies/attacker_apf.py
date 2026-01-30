@@ -1,15 +1,16 @@
 """
 Target APF策略 - 用于Attacker（或任何需要到达静态目标的智能体）
 
-状态空间（Attacker观测，71维）：
+状态空间（Attacker观测，72维）：
 - obs[0]: Attacker 全局 X 坐标（归一化）
 - obs[1]: Attacker 全局 Y 坐标（归一化）
 - obs[2]: Attacker 朝向（归一化）
 - obs[3]: Defender 全局 X 坐标（归一化）
 - obs[4]: Defender 全局 Y 坐标（归一化）
-- obs[5:69]: 雷达数据（64维）
-- obs[69]: Target 全局 X 坐标（归一化）
-- obs[70]: Target 全局 Y 坐标（归一化）
+- obs[5]: Defender 朝向（归一化）
+- obs[6]: Target 全局 X 坐标（归一化）
+- obs[7]: Target 全局 Y 坐标（归一化）
+- obs[8:72]: 雷达数据（64维）
 
 动作空间：
 - action[0]: 角度变化（归一化）
@@ -213,8 +214,8 @@ class AttackerAPFPolicy:
         attacker_pos = self.denormalize_pos(obs[0], obs[1])
         attacker_heading = self.denormalize_heading(obs[2])
         defender_pos = self.denormalize_pos(obs[3], obs[4])
-        target_pos = self.denormalize_pos(obs[69], obs[70])
-        radar_data = obs[5:69]
+        target_pos = self.denormalize_pos(obs[6], obs[7])
+        radar_data = obs[8:72]
 
         # 调试信息（第一次调用时打印）
         if not hasattr(self, '_debug_printed'):
@@ -224,7 +225,7 @@ class AttackerAPFPolicy:
             print(f"  Target pos: {target_pos}")
             print(f"  Distance to target: {np.hypot(target_pos[0]-attacker_pos[0], target_pos[1]-attacker_pos[1]):.1f}px")
             print(f"  Defender pos: {defender_pos}")
-            print(f"  Target observation values: obs[69]={obs[69]:.3f}, obs[70]={obs[70]:.3f}")
+            print(f"  Target observation values: obs[6]={obs[6]:.3f}, obs[7]={obs[7]:.3f}")
             self._debug_printed = True
 
         # 转换雷达数据为障碍物
@@ -272,7 +273,7 @@ class AttackerAPFPolicy:
         # 解析观测
         attacker_pos = self.denormalize_pos(obs[0], obs[1])
         attacker_heading = self.denormalize_heading(obs[2])
-        target_pos = self.denormalize_pos(obs[69], obs[70])
+        target_pos = self.denormalize_pos(obs[6], obs[7])
 
         # 计算动作
         action = self.get_action(obs)
@@ -287,7 +288,7 @@ class AttackerAPFPolicy:
                 attacker_pos[1] - target_pos[1]
             ),
             'obstacles_detected': len(self.radar_to_obstacles(
-                obs[5:69], attacker_pos, attacker_heading
+                obs[8:72], attacker_pos, attacker_heading
             ))
         }
 

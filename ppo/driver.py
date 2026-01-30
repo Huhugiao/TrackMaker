@@ -58,20 +58,37 @@ def cosine_anneal_il_weight(current_step: int) -> float:
 def main():
     set_global_seeds(SetupParameters.SEED)
     
+    # =========== RETRAIN / FRESH_RETRAIN 加载逻辑 ===========
+    model_dict = None
+    fresh_retrain = getattr(RecordingParameters, 'FRESH_RETRAIN', False)
+    retrain = getattr(RecordingParameters, 'RETRAIN', False)
+    
+    if retrain or fresh_retrain:
+        checkpoint_path = getattr(RecordingParameters, 'RESTORE_DIR', None)
+        if checkpoint_path and osp.exists(checkpoint_path):
+            model_dict = torch.load(checkpoint_path, map_location='cpu')
+            if fresh_retrain:
+                print(f"[FRESH_RETRAIN] Loaded model weights from {checkpoint_path}, resetting training progress")
+            else:
+                print(f"[RETRAIN] Loaded checkpoint from {checkpoint_path}")
+        else:
+            print(f"[WARNING] RESTORE_DIR not found or not set: {checkpoint_path}")
+    # =========================================================
+    
     timestamp = datetime.now().strftime('%m-%d-%H-%M')
     run_name = f"{SetupParameters.SKILL_MODE}_{TrainingParameters.TRAINING_MODE}_{timestamp}"
     
-    # 创建 run_name 目录下的 models 和 gifs 子文件夹
-    run_dir = osp.join(RecordingParameters.MODEL_PATH, run_name)
-    model_dir = osp.join(run_dir, 'models')
-    gif_dir = osp.join(run_dir, 'gifs')
+    # 直接使用 MODEL_PATH，不再嵌套子目录
+    # 路径结构: models/defender_protect2_dense_01-28-xx-xx/
+    model_dir = RecordingParameters.MODEL_PATH
+    gif_dir = osp.join(RecordingParameters.MODEL_PATH, 'gifs')
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(gif_dir, exist_ok=True)
     
     summary_writer = None
     if RecordingParameters.TENSORBOARD:
         from torch.utils.tensorboard import SummaryWriter
-        log_dir = osp.join(RecordingParameters.SUMMARY_PATH, run_name)
+        log_dir = RecordingParameters.SUMMARY_PATH
         os.makedirs(log_dir, exist_ok=True)
         summary_writer = SummaryWriter(log_dir)
     
@@ -84,6 +101,10 @@ def main():
     print(f"Opponent Weights: {TrainingParameters.RANDOM_OPPONENT_WEIGHTS}")
     print(f"Num Runners: {TrainingParameters.N_ENVS}")
     print(f"Steps per Runner: {TrainingParameters.N_STEPS}")
+    if retrain:
+        print(f"RETRAIN: True (继续训练，恢复进度)")
+    if fresh_retrain:
+        print(f"FRESH_RETRAIN: True (加载权重，重置进度)")
     print("=" * 60)
     
     ray.init(num_cpus=TrainingParameters.N_ENVS, num_gpus=SetupParameters.NUM_GPU)
@@ -91,10 +112,34 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() and SetupParameters.USE_GPU_GLOBAL else 'cpu')
     model = Model(device=device, global_model=True)
     
+    # 加载模型权重 (RETRAIN 或 FRESH_RETRAIN)
+    if model_dict is not None:
+        # 兼容旧格式 (直接 state_dict) 和新格式 (dict with 'model' key)
+        if 'model' in model_dict:
+            model.set_weights(model_dict['model'])
+        else:
+            # 旧格式: model_dict 本身就是 state_dict
+            model.set_weights(model_dict)
+        print("[INFO] Model weights loaded successfully")
+    
     runners = [Runner.remote(i) for i in range(TrainingParameters.N_ENVS)]
     
-    global_step = 0
-    best_reward = -float('inf')
+    # FRESH_RETRAIN: 重置进度; RETRAIN: 恢复进度
+    if model_dict and not fresh_retrain:
+        # RETRAIN: 恢复训练进度 (兼容旧格式)
+        if isinstance(model_dict, dict) and 'step' in model_dict:
+            global_step = int(model_dict.get('step', 0))
+            best_reward = float(model_dict.get('reward', -float('inf')))
+            print(f"[RETRAIN] Resuming from step {global_step:,}, best_reward {best_reward:.2f}")
+        else:
+            # 旧格式没有进度信息，从头开始
+            global_step = 0
+            best_reward = -float('inf')
+            print("[RETRAIN] Old checkpoint format, starting from step 0")
+    else:
+        # 新训练或 FRESH_RETRAIN: 从头开始
+        global_step = 0
+        best_reward = -float('inf')
     
     total_steps = int(TrainingParameters.N_MAX_STEPS)
     total_updates = int(TrainingParameters.N_MAX_STEPS // (TrainingParameters.N_ENVS * TrainingParameters.N_STEPS))
@@ -242,18 +287,18 @@ def main():
             if eval_reward > best_reward:
                 best_reward = eval_reward
                 best_path = osp.join(model_dir, 'best_model.pth')
-                model.save(best_path)
+                model.save(best_path, step=global_step, reward=best_reward)
                 print(f"New best model saved! Reward: {best_reward:.2f}")
             
             print("------------------")
         
         if (global_step // RecordingParameters.SAVE_INTERVAL) > ((global_step - steps_this_update) // RecordingParameters.SAVE_INTERVAL):
             latest_path = osp.join(model_dir, 'latest_model.pth')
-            model.save(latest_path)
+            model.save(latest_path, step=global_step, reward=best_reward)
             print(f"Latest model saved: {latest_path}")
     
     final_path = osp.join(model_dir, 'final_model.pth')
-    model.save(final_path)
+    model.save(final_path, step=global_step, reward=best_reward)
     print(f"\nFinal model saved: {final_path}")
     
     total_time = time.time() - start_time

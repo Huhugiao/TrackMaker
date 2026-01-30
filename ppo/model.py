@@ -422,10 +422,23 @@ class Model(object):
         for group in self.net_optimizer.param_groups:
             group['lr'] = new_lr
             
-    def save(self, path):
+    def save(self, path, step=None, reward=None):
+        """
+        保存模型检查点
+        
+        Args:
+            path: 保存路径
+            step: 当前训练步数 (用于RETRAIN恢复)
+            reward: 当前最佳奖励 (用于RETRAIN恢复)
+        """
         import os
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        torch.save(self.network.state_dict(), path)
+        checkpoint = {
+            'model': self.get_weights(),
+            'step': step if step is not None else 0,
+            'reward': reward if reward is not None else -float('inf')
+        }
+        torch.save(checkpoint, path)
 
     def load(self, path):
         checkpoint = torch.load(path, map_location=self.device)

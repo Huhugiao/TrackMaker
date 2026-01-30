@@ -555,6 +555,22 @@ def _draw_capture_sector(surface, tracker):
         pygame.gfxdraw.aapolygon(surface, pts, outline_color)
         pygame.draw.lines(surface, outline_color, True, pts, 1)
 
+def _draw_capture_radius(surface, defender):
+    if pygame is None:
+        return
+    ss = getattr(map_config, 'ssaa', 1)
+    cx_world = defender['x'] + map_config.pixel_size * 0.5
+    cy_world = defender['y'] + map_config.pixel_size * 0.5
+    cx, cy = int(cx_world * ss), int(cy_world * ss)
+
+    radius = float(getattr(map_config, 'capture_radius', 10.0))
+    r_i = max(2, int(radius * ss))
+
+    color = getattr(map_config, 'CAPTURE_RADIUS_COLOR', (80, 200, 120, 120))
+    thickness = max(1, int(1.5 * ss))
+    pygame.draw.circle(surface, color, (cx, cy), r_i, thickness)
+
+
 def get_canvas(target, tracker, tracker_traj, target_traj, surface=None, fov_points=None, collision_info=None):
     w, h = map_config.width, map_config.height
     ss = getattr(map_config, 'ssaa', 1)
@@ -655,7 +671,7 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
                          defender_collision=False, attacker_collision=False,
                          defender_captured=False, attacker_captured=False,
                          capture_progress_defender=0, capture_progress_attacker=0,
-                         capture_required_steps=0, radar=None):
+                         capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
     info = {
         'capture_progress_defender': int(capture_progress_defender),
         'capture_progress_attacker': int(capture_progress_attacker),
@@ -698,16 +714,14 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
                              capture_progress_defender=0, capture_progress_attacker=0,
                              capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
     """
-    奖励函数用于训练保护target的skill
+    奖励函数用于训练导航到target的skill
 
     特点：
     - 无时间惩罚
-    - defender捕获attacker: +20
-    - attacker到达target: -10（降低惩罚以增加探索）
+    - defender到达target: +20 (胜利!)
+    - attacker到达target: -10
     - defender碰撞障碍物: -20
-    - attacker碰撞障碍物: 不结束episode
-    - 超时算defender胜利: +20
-    - 有defender-target距离奖励
+    - 有defender-target距离奖励（进度奖励）
     """
     info = {
         'capture_progress_defender': int(capture_progress_defender),
@@ -720,24 +734,30 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
     reward = 0.0
     terminated = False
 
-    # 计算defender到target的距离
+    # 计算defender到target的距离（中心到中心）
     dx_def_tgt = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
     dy_def_tgt = (defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
     curr_dist_def_tgt = math.hypot(dx_def_tgt, dy_def_tgt)
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
+    target_radius = float(getattr(map_config, 'target_radius', 16.0))
+
+    # Defender/Attacker 都是有半径的圆。
+    # protect 模式下，\"到达目标\"应以边缘相碰为准：center_dist <= target_radius + agent_radius。
+    # 之前仅用 target_radius 会显著抬高达成难度，并让 attacker 更容易先触达目标。
+    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+    reach_radius = target_radius + agent_radius
 
     # 距离奖励：按进度比例给奖励，初始距离为基准
-    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > map_config.capture_radius:
+    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > reach_radius:
         prev_dx_def_tgt = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
         prev_dy_def_tgt = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
         prev_dist_def_tgt = math.hypot(prev_dx_def_tgt, prev_dy_def_tgt)
 
-        # 计算边界距离（实际距离 - 抓捕半径）
-        capture_radius = float(getattr(map_config, 'capture_radius', 20.0))
-        prev_boundary_dist = max(0.0, prev_dist_def_tgt - capture_radius)
-        curr_boundary_dist = max(0.0, curr_dist_def_tgt - capture_radius)
-        initial_boundary_dist = max(0.0, initial_dist_def_tgt - capture_radius)
+        # 计算边界距离（实际距离 - target半径）
+        prev_boundary_dist = max(0.0, prev_dist_def_tgt - reach_radius)
+        curr_boundary_dist = max(0.0, curr_dist_def_tgt - reach_radius)
+        initial_boundary_dist = max(0.0, initial_dist_def_tgt - reach_radius)
 
         # 进度奖励：距离减小的比例 * success_reward
         if initial_boundary_dist > 0:
@@ -745,18 +765,25 @@ def reward_calculate_protect(defender, attacker, target, prev_defender=None, pre
             distance_reward = distance_progress * success_reward
             reward += distance_reward
 
-    # 终止奖励
-    if attacker_captured:
+    # 终止条件判断 (按优先级)
+    # 1. Defender到达Target - 胜利!
+    if curr_dist_def_tgt <= reach_radius:
+        terminated = True
+        info['reason'] = 'defender_reached_target'
+        info['win'] = True
+        reward += success_reward
+    # 2. Attacker到达Target - 失败
+    elif attacker_captured:
         terminated = True
         info['reason'] = 'attacker_caught_target'
         info['win'] = False
-        reward -= 10.0  # 降低惩罚，让defender有更多探索空间
+        reward -= 10.0
+    # 3. Defender碰撞障碍物 - 失败
     elif defender_collision:
         terminated = True
         reward -= success_reward
         info['reason'] = 'defender_collision'
         info['win'] = False
-    # attacker_collision 不影响 episode 终止，仅记录在 info 中
 
     return float(reward), bool(terminated), False, info
 
@@ -848,6 +875,7 @@ def get_canvas_tad(target, defender, attacker, defender_traj, attacker_traj, sur
         _draw_obstacles(surface)
 
     _draw_fov(surface, defender, fov_points)
+    _draw_capture_sector(surface, defender)
 
     _draw_trail(surface, defender_traj, map_config.trail_color_defender, map_config.trail_width)
     _draw_trail(surface, attacker_traj, map_config.trail_color_attacker, map_config.trail_width)
@@ -868,3 +896,156 @@ def get_canvas_tad(target, defender, attacker, defender_traj, attacker_traj, sur
 
     canvas = pygame.transform.smoothscale(surface, (w, h)) if ss > 1 else surface
     return pygame.surfarray.array3d(canvas).swapaxes(0, 1)
+
+
+def reward_calculate_protect1(defender, attacker, target, prev_defender=None, prev_attacker=None,
+                              defender_collision=False, attacker_collision=False,
+                              defender_captured=False, attacker_captured=False,
+                              capture_progress_defender=0, capture_progress_attacker=0,
+                              capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
+    """
+    Protect阶段1奖励函数：学会导航到target
+    
+    特点：
+    - 对手静止 (attacker_static)
+    - 只有靠近target的进度奖励 + 碰撞惩罚
+    - 到达target附近即成功 (不考虑任务胜负)
+    - 无时间惩罚
+    
+    奖励：
+    - 进度奖励：根据与target距离变化按比例给奖励
+    - defender到达target: +20 (胜利!)
+    - defender碰撞障碍物: -20
+    """
+    info = {
+        'capture_progress_defender': int(capture_progress_defender),
+        'capture_progress_attacker': int(capture_progress_attacker),
+        'capture_required_steps': int(capture_required_steps),
+        'defender_collision': bool(defender_collision),
+        'attacker_collision': bool(attacker_collision)
+    }
+
+    reward = 0.0
+    terminated = False
+
+    # 计算defender到target的距离
+    dx_def_tgt = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
+    dy_def_tgt = (defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
+    curr_dist_def_tgt = math.hypot(dx_def_tgt, dy_def_tgt)
+
+    success_reward = float(getattr(map_config, 'success_reward', 20.0))
+    target_radius = float(getattr(map_config, 'target_radius', 16.0))
+    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+    reach_radius = target_radius + agent_radius
+
+    # 距离奖励：按进度比例给奖励
+    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > reach_radius:
+        prev_dx_def_tgt = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
+        prev_dy_def_tgt = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
+        prev_dist_def_tgt = math.hypot(prev_dx_def_tgt, prev_dy_def_tgt)
+
+        prev_boundary_dist = max(0.0, prev_dist_def_tgt - reach_radius)
+        curr_boundary_dist = max(0.0, curr_dist_def_tgt - reach_radius)
+        initial_boundary_dist = max(0.0, initial_dist_def_tgt - reach_radius)
+
+        if initial_boundary_dist > 0:
+            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
+            distance_reward = distance_progress * success_reward
+            reward += distance_reward
+
+    # 终止条件判断 (protect1: 只关注导航)
+    # 1. Defender到达Target - 胜利!
+    if curr_dist_def_tgt <= reach_radius:
+        terminated = True
+        info['reason'] = 'defender_reached_target'
+        info['win'] = True
+        reward += success_reward
+    # 2. Defender碰撞障碍物 - 失败
+    elif defender_collision:
+        terminated = True
+        reward -= success_reward
+        info['reason'] = 'defender_collision'
+        info['win'] = False
+    # 注意：protect1 不因 attacker_captured 终止，因为对手静止，这种情况不会发生
+
+    return float(reward), bool(terminated), False, info
+
+
+def reward_calculate_protect2(defender, attacker, target, prev_defender=None, prev_attacker=None,
+                              defender_collision=False, attacker_collision=False,
+                              defender_captured=False, attacker_captured=False,
+                              capture_progress_defender=0, capture_progress_attacker=0,
+                              capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
+    """
+    Protect阶段2奖励函数：到达target后保护它
+    
+    特点：
+    - 对手使用导航策略 (attacker_global)
+    - 包含导航奖励 + 任务胜负奖励
+    - Success条件与完整任务相同
+    
+    奖励：
+    - 进度奖励：根据与target距离变化按比例给奖励 (继承自protect1)
+    - defender抓住attacker: +20 (胜利!)
+    - attacker抓住target: -20 (失败)
+    - defender碰撞障碍物: -20 (失败)
+    - 超时: 算defender胜利 (由env.py处理)
+    - 无时间惩罚
+    """
+    info = {
+        'capture_progress_defender': int(capture_progress_defender),
+        'capture_progress_attacker': int(capture_progress_attacker),
+        'capture_required_steps': int(capture_required_steps),
+        'defender_collision': bool(defender_collision),
+        'attacker_collision': bool(attacker_collision)
+    }
+
+    reward = 0.0
+    terminated = False
+
+    # 计算defender到target的距离
+    dx_def_tgt = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
+    dy_def_tgt = (defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
+    curr_dist_def_tgt = math.hypot(dx_def_tgt, dy_def_tgt)
+
+    success_reward = float(getattr(map_config, 'success_reward', 20.0))
+    target_radius = float(getattr(map_config, 'target_radius', 16.0))
+    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+    reach_radius = target_radius + agent_radius
+
+    # 距离奖励：按进度比例给奖励 (导航到target)
+    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > reach_radius:
+        prev_dx_def_tgt = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
+        prev_dy_def_tgt = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
+        prev_dist_def_tgt = math.hypot(prev_dx_def_tgt, prev_dy_def_tgt)
+
+        prev_boundary_dist = max(0.0, prev_dist_def_tgt - reach_radius)
+        curr_boundary_dist = max(0.0, curr_dist_def_tgt - reach_radius)
+        initial_boundary_dist = max(0.0, initial_dist_def_tgt - reach_radius)
+
+        if initial_boundary_dist > 0:
+            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
+            distance_reward = distance_progress * success_reward
+            reward += distance_reward
+
+    # 终止条件判断 (protect2: 完整任务胜负条件)
+    # 1. Defender抓住Attacker - 胜利!
+    if defender_captured:
+        terminated = True
+        info['reason'] = 'defender_caught_attacker'
+        info['win'] = True
+        reward += success_reward
+    # 2. Attacker抓住Target - 失败
+    elif attacker_captured:
+        terminated = True
+        info['reason'] = 'attacker_caught_target'
+        info['win'] = False
+        reward -= success_reward
+    # 3. Defender碰撞障碍物 - 失败
+    elif defender_collision:
+        terminated = True
+        reward -= success_reward
+        info['reason'] = 'defender_collision'
+        info['win'] = False
+
+    return float(reward), bool(terminated), False, info

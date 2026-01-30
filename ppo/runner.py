@@ -58,14 +58,30 @@ class Runner:
     
     def _create_opponent_policies(self) -> Dict[str, Any]:
         policies = {}
-        weights_cfg = TrainingParameters.RANDOM_OPPONENT_WEIGHTS.get('attacker', {})
-        for key in weights_cfg.keys():
-            if key in ATTACKER_POLICY_REGISTRY:
-                policy_cls = ATTACKER_POLICY_REGISTRY[key]
-                policies[key] = policy_cls
+        # 始终包含 protect1/protect2 所需的策略
+        skill_mode = SetupParameters.SKILL_MODE
+        if skill_mode == 'protect1':
+            policies['attacker_static'] = ATTACKER_POLICY_REGISTRY['attacker_static']
+        elif skill_mode == 'protect2':
+            policies['attacker_global'] = ATTACKER_POLICY_REGISTRY['attacker_global']
+        else:
+            # 其他模式：根据配置创建
+            weights_cfg = TrainingParameters.RANDOM_OPPONENT_WEIGHTS.get('attacker', {})
+            for key in weights_cfg.keys():
+                if key in ATTACKER_POLICY_REGISTRY:
+                    policy_cls = ATTACKER_POLICY_REGISTRY[key]
+                    policies[key] = policy_cls
         return policies
     
     def _sample_opponent_policy(self) -> str:
+        # protect1/protect2 强制使用指定对手策略
+        skill_mode = SetupParameters.SKILL_MODE
+        if skill_mode == 'protect1':
+            return 'attacker_static'  # 阶段1: 静止对手
+        elif skill_mode == 'protect2':
+            return 'attacker_global'  # 阶段2: 导航对手
+        
+        # 其他模式按配置的权重随机采样
         weights_cfg = TrainingParameters.RANDOM_OPPONENT_WEIGHTS.get('attacker', {})
         keys = list(weights_cfg.keys())
         probs = np.array([weights_cfg[k] for k in keys], dtype=np.float64)
@@ -145,18 +161,17 @@ class Runner:
             critic_obs_t = torch.tensor(critic_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
             
             with torch.no_grad():
-                actions, log_probs, _, values = self.local_network.act(obs_t, critic_obs_t)
-            
-            action = actions.cpu().numpy().flatten()
+                actions, log_probs, pre_tanh, values = self.local_network.act(obs_t, critic_obs_t)
+            tanh_action = actions.cpu().numpy().flatten()
+            pre_tanh_action = pre_tanh.cpu().numpy().flatten()
             log_prob = log_probs.cpu().numpy().item()
             value = values.cpu().numpy().item()
             
             mb_obs.append(self.defender_obs.copy())
             mb_critic_obs.append(critic_obs.copy())
-            mb_actions.append(action)
+            mb_actions.append(pre_tanh_action)
             mb_log_probs.append(log_prob)
             mb_values.append(value)
-            mb_dones.append(self.done)
             
             # Get expert action for IL
             priv_state = self.env.get_privileged_state()
@@ -167,7 +182,7 @@ class Runner:
             attacker_action = self.attacker_policy.get_action(self.attacker_obs)
             
             # Step environment
-            obs, reward, terminated, truncated, info = self.env.step(action, attacker_action)
+            obs, reward, terminated, truncated, info = self.env.step(tanh_action, attacker_action)
             done = terminated or truncated
             
             self.defender_obs, self.attacker_obs = obs
@@ -176,6 +191,7 @@ class Runner:
             self.episode_len += 1
             
             mb_rewards.append(reward)
+            mb_dones.append(done)
             
             if done:
                 one_ep = {
@@ -209,13 +225,12 @@ class Runner:
         for t in reversed(range(num_steps)):
             if t == num_steps - 1:
                 next_value = last_value
-                next_done = self.done
             else:
                 next_value = mb_values[t + 1]
-                next_done = mb_dones[t + 1]
-            
-            delta = mb_rewards[t] + TrainingParameters.GAMMA * next_value * (1.0 - next_done) - mb_values[t]
-            lastgaelam = delta + TrainingParameters.GAMMA * TrainingParameters.LAM * (1.0 - next_done) * lastgaelam
+
+            done_t = mb_dones[t]
+            delta = mb_rewards[t] + TrainingParameters.GAMMA * next_value * (1.0 - done_t) - mb_values[t]
+            lastgaelam = delta + TrainingParameters.GAMMA * TrainingParameters.LAM * (1.0 - done_t) * lastgaelam
             mb_advs[t] = lastgaelam
         
         mb_returns = mb_advs + mb_values

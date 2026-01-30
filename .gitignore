@@ -4,3 +4,4 @@ models/
 *.nbi
 *.nbc
 *.log
+.vscode/

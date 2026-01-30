@@ -3,15 +3,16 @@ Attacker Global Pathfinding Policy
 
 Strategy: 使用全局障碍物信息进行路径规划，直接导航到Target
 
-Observation (71维):
+Observation (72维):
 - obs[0]: Attacker 全局 X 坐标（归一化）
 - obs[1]: Attacker 全局 Y 坐标（归一化）
 - obs[2]: Attacker 朝向（归一化）
 - obs[3]: Defender 全局 X 坐标（归一化）
 - obs[4]: Defender 全局 Y 坐标（归一化）
-- obs[5:69]: 雷达数据（64维）- 本策略不使用
-- obs[69]: Target 全局 X 坐标（归一化）
-- obs[70]: Target 全局 Y 坐标（归一化）
+- obs[5]: Defender 朝向（归一化）
+- obs[6]: Target 全局 X 坐标（归一化）
+- obs[7]: Target 全局 Y 坐标（归一化）
+- obs[8:72]: 雷达数据（64维）- 本策略不使用
 
 Action: [angle_delta, speed_normalized]
 - angle_delta: 角度变化（归一化到[-1, 1]）
@@ -260,7 +261,7 @@ class AttackerGlobalPolicy:
         attacker_pos = self.denormalize_pos(obs[0], obs[1])
         attacker_heading = self.denormalize_heading(obs[2])
         defender_pos = self.denormalize_pos(obs[3], obs[4])
-        target_pos = self.denormalize_pos(obs[69], obs[70])
+        target_pos = self.denormalize_pos(obs[6], obs[7])
 
         self.step_count += 1
 
@@ -276,7 +277,44 @@ class AttackerGlobalPolicy:
             need_replan = True
 
         if need_replan:
-            self.path = self.plan_path(attacker_pos, target_pos, defender_pos)
+            # 多级避让策略：优先尝试避让，找不到路径则逐步降低避让半径
+            dist_defender_to_target = np.linalg.norm(defender_pos - target_pos)
+            target_radius = float(getattr(map_config, 'target_radius', 16.0))
+            agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+            
+            # 根据 defender 与 target 的距离，动态调整避让半径
+            # defender 越靠近 target，避让半径越小（这样 attacker 仍会尝试躲避）
+            max_dist_for_full_avoid = 60.0
+            
+            if dist_defender_to_target >= max_dist_for_full_avoid:
+                # 远离 target 时，使用完整避让
+                base_avoid_radius = self.defender_avoid_radius
+            else:
+                # 靠近 target 时，线性减小（但保持一定避让）
+                ratio = dist_defender_to_target / max_dist_for_full_avoid
+                base_avoid_radius = agent_radius + ratio * (self.defender_avoid_radius - agent_radius)
+            
+            # 尝试多个避让半径，直到找到有效路径
+            original_avoid_radius = self.defender_avoid_radius
+            self.path = None
+            
+            # 从基础避让半径开始，逐步减小直到找到路径
+            for try_radius in [base_avoid_radius, base_avoid_radius * 0.5, agent_radius, 0]:
+                self.defender_avoid_radius = try_radius
+                test_path = self.plan_path(
+                    attacker_pos, target_pos, 
+                    defender_pos if try_radius > 0 else None
+                )
+                # 如果找到有效路径（长度 > 2），使用它
+                if len(test_path) > 2:
+                    self.path = test_path
+                    break
+            
+            # 如果所有尝试都失败，使用最后一次的路径
+            if self.path is None:
+                self.path = test_path
+            
+            self.defender_avoid_radius = original_avoid_radius
             self.current_path_index = 0
             self.last_planned_pos = attacker_pos.copy()
 
@@ -341,7 +379,7 @@ class AttackerGlobalPolicy:
         attacker_pos = self.denormalize_pos(obs[0], obs[1])
         attacker_heading = self.denormalize_heading(obs[2])
         defender_pos = self.denormalize_pos(obs[3], obs[4])
-        target_pos = self.denormalize_pos(obs[69], obs[70])
+        target_pos = self.denormalize_pos(obs[6], obs[7])
 
         # 计算距离
         dist_to_defender = np.linalg.norm(attacker_pos - defender_pos)

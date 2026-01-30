@@ -22,7 +22,7 @@ class TADEnv(gym.Env):
     def __init__(self, spawn_outside_fov=False, reward_mode='standard'):
         super().__init__()
         self.spawn_outside_fov = bool(spawn_outside_fov)
-        self.reward_mode = reward_mode  # 'standard', 'protect', 'chase'
+        self.reward_mode = reward_mode  # 'standard', 'protect', 'protect1', 'protect2', 'chase'
         self.mask_flag = getattr(map_config, 'mask_flag', False)
         self.width = map_config.width
         self.height = map_config.height
@@ -241,19 +241,27 @@ class TADEnv(gym.Env):
         return in_fov, occluded
 
     def _get_attacker_observation(self):
-        obs = np.zeros(71, dtype=np.float32)
+        """
+        Get attacker observation (privileged, for Critic CTDE).
+        
+        观测结构 (72维):
+          [0:8]  = 标量: [attacker_x, attacker_y, attacker_heading, defender_x, defender_y, defender_heading, target_x, target_y]
+          [8:72] = radar (64维)
+        """
+        obs = np.zeros(72, dtype=np.float32)
 
+        # 标量部分 [0:8]
         obs[0] = (self.attacker['x'] / self.width) * 2.0 - 1.0
         obs[1] = (self.attacker['y'] / self.height) * 2.0 - 1.0
         obs[2] = (self.attacker['theta'] / 180.0) - 1.0
         obs[3] = (self.defender['x'] / self.width) * 2.0 - 1.0
         obs[4] = (self.defender['y'] / self.height) * 2.0 - 1.0
+        obs[5] = (self.defender['theta'] / 180.0) - 1.0  # 新增: defender朝向
+        obs[6] = (self.target['x'] / self.width) * 2.0 - 1.0
+        obs[7] = (self.target['y'] / self.height) * 2.0 - 1.0
 
-        obs[5:5+64] = self._sense_agent_radar(self.attacker, num_rays=self.radar_rays, full_circle=True)
-
-        # Target global normalized coordinates (no bearing needed)
-        obs[69] = (self.target['x'] / self.width) * 2.0 - 1.0
-        obs[70] = (self.target['y'] / self.height) * 2.0 - 1.0
+        # 雷达部分 [8:72]
+        obs[8:72] = self._sense_agent_radar(self.attacker, num_rays=self.radar_rays, full_circle=True)
 
         return obs
 
@@ -397,6 +405,36 @@ class TADEnv(gym.Env):
                 radar=defender_radar,
                 initial_dist_def_tgt=self.initial_dist_def_tgt
             )
+        elif self.reward_mode == 'protect1':
+            reward, terminated, truncated, info = env_lib.reward_calculate_protect1(
+                self.defender, self.attacker, self.target,
+                prev_defender=self.prev_defender_pos,
+                prev_attacker=self.prev_attacker_pos,
+                defender_collision=bool(defender_blocked),
+                attacker_collision=bool(attacker_blocked),
+                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
+                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
+                capture_progress_defender=int(self._capture_counter_defender),
+                capture_progress_attacker=int(self._capture_counter_attacker),
+                capture_required_steps=int(self.capture_required_steps),
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt
+            )
+        elif self.reward_mode == 'protect2':
+            reward, terminated, truncated, info = env_lib.reward_calculate_protect2(
+                self.defender, self.attacker, self.target,
+                prev_defender=self.prev_defender_pos,
+                prev_attacker=self.prev_attacker_pos,
+                defender_collision=bool(defender_blocked),
+                attacker_collision=bool(attacker_blocked),
+                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
+                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
+                capture_progress_defender=int(self._capture_counter_defender),
+                capture_progress_attacker=int(self._capture_counter_attacker),
+                capture_required_steps=int(self.capture_required_steps),
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt
+            )
         elif self.reward_mode == 'chase':
             reward, terminated, truncated, info = env_lib.reward_calculate_chase(
                 self.defender, self.attacker, self.target,
@@ -442,6 +480,10 @@ class TADEnv(gym.Env):
         self.current_obs = self._get_obs_features()
         if self.step_count >= EnvParameters.EPISODE_LEN and not terminated:
             truncated = True
+            # 超时处理：protect2 模式下超时算 defender 胜利
+            if self.reward_mode == 'protect2':
+                info['reason'] = 'timeout_defender_wins'
+                info['win'] = True
 
         return self.current_obs, float(reward), bool(terminated), bool(truncated), info
 

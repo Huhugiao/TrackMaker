@@ -42,8 +42,10 @@ class SetupParameters:
     # 障碍物密度等级 (none, dense)
     OBSTACLE_DENSITY = ObstacleDensity.DENSE
     
-    # 技能模式: "chase" 或 "protect"
-    SKILL_MODE = "protect"
+    # 技能模式: "chase", "protect1", "protect2"
+    # protect1: 导航到target阶段 (静止对手, 到达即成功)
+    # protect2: 保护target阶段 (导航对手, 任务胜负条件)
+    SKILL_MODE = "protect2"
 
 
 class TrainingParameters:
@@ -58,7 +60,7 @@ class TrainingParameters:
     # --- 训练流程设置 ---
     N_ENVS = 4               # 并行环境数量
     N_STEPS = 2048           # 每个环境采样的步数 (PPO Rollout Length)
-    N_MAX_STEPS = 4e7        # 最大训练总步数
+    N_MAX_STEPS = 10e7        # 最大训练总步数
     LOG_EPOCH_STEPS = int(1e4) # 每隔多少步记录一次日志
     
     MINIBATCH_SIZE = 64      # PPO更新的Mini-batch大小
@@ -92,12 +94,12 @@ class TrainingParameters:
     OPPONENT_TYPE = "random"
     
     # 随机对手权重 (攻击者策略权重)
-    # 根据alg_parameter里配置的概率权重来采样
+    # 注意：protect1/protect2 会自动覆盖此设置
+    # protect1 强制使用 attacker_static, protect2 强制使用 attacker_global
     RANDOM_OPPONENT_WEIGHTS = {
         "attacker": {
-            # "attacker_apf": 0.5,
-            # "attacker_global": 1.0,  # 全局路径规划Attacker
-            "attacker_static": 1.0,  # 测试用：静止的Attacker
+            "attacker_static": 1.0,  # protect1 默认
+            # "attacker_global": 1.0,  # protect2 使用
         }
     }
 
@@ -121,13 +123,13 @@ class NetParameters:
     ACTOR_SCALAR_LEN = DEFENDER_SCALAR_LEN + TARGET_SCALAR_LEN  # 5 + 2 = 7
     
     # Privileged观测: Attacker完整状态 (用于Critic CTDE)
-    PRIVILEGED_SCALAR_LEN = 7  # Attacker标量部分
+    PRIVILEGED_SCALAR_LEN = 8  # Attacker标量部分 (含defender朝向)
     
     # Input Vectors (Scalar + Embedded Radar)
     # RAW dimensions (for buffers and env interaction)
     ACTOR_RAW_LEN = ACTOR_SCALAR_LEN + RADAR_DIM           # 7 + 64 = 71
-    PRIVILEGED_RAW_LEN = PRIVILEGED_SCALAR_LEN + RADAR_DIM # 7 + 64 = 71
-    CRITIC_RAW_LEN = ACTOR_RAW_LEN + PRIVILEGED_RAW_LEN    # 71 + 71 = 142
+    PRIVILEGED_RAW_LEN = PRIVILEGED_SCALAR_LEN + RADAR_DIM # 8 + 64 = 72
+    CRITIC_RAW_LEN = ACTOR_RAW_LEN + PRIVILEGED_RAW_LEN    # 71 + 72 = 143
     
     # ENCODED dimensions (for network internal processing)
     ACTOR_VECTOR_LEN = ACTOR_SCALAR_LEN + RADAR_EMBED_DIM      # 7 + 8 = 15
@@ -159,8 +161,8 @@ class RecordingParameters:
     TIME = datetime.datetime.now().strftime("_%m-%d-%H-%M")
     
     RETRAIN = False           # 是否继续训练 (加载权重和进度)
-    FRESH_RETRAIN = False     # 仅加载模型权重，重置训练进度和学习率调度
-    RESTORE_DIR = ""          # 恢复模型的目录
+    FRESH_RETRAIN = True     # 仅加载模型权重，重置训练进度和学习率调度
+    RESTORE_DIR = "./models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28/models/best_model.pth"          # 恢复模型的目录
     
     TENSORBOARD = True        # 是否使用TensorBoard
     TXT_LOG = True            # 是否记录TXT日志
@@ -175,7 +177,7 @@ class RecordingParameters:
     EVAL_INTERVAL = 100000    # 评估间隔 (步数)
     SAVE_INTERVAL = 300000    # 保存模型间隔 (步数)
     BEST_INTERVAL = 0         # (未使用)
-    GIF_INTERVAL = 500000     # 保存GIF间隔 (步数)
+    GIF_INTERVAL = 1000000     # 保存GIF间隔 (步数)
     EVAL_EPISODES = 48        # 评估时的对局数
     
     # Loss 名称列表 (用于日志记录)
