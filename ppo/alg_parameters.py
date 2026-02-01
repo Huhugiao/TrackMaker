@@ -45,7 +45,7 @@ class SetupParameters:
     # 技能模式: "chase", "protect1", "protect2"
     # protect1: 导航到target阶段 (静止对手, 到达即成功)
     # protect2: 保护target阶段 (导航对手, 任务胜负条件)
-    SKILL_MODE = "protect2"
+    SKILL_MODE = "chase"
 
 
 class TrainingParameters:
@@ -88,20 +88,6 @@ class TrainingParameters:
     IL_INITIAL_WEIGHT = 1.0      # 初始IL权重
     IL_FINAL_WEIGHT = 0.0        # 最终IL权重
     IL_ANNEAL_STEPS = 1e7  # 退火步数
-    
-    # --- 对手策略设置 ---
-    # 对手类型: 'random' (按权重随机采样对手策略)
-    OPPONENT_TYPE = "random"
-    
-    # 随机对手权重 (攻击者策略权重)
-    # 注意：protect1/protect2 会自动覆盖此设置
-    # protect1 强制使用 attacker_static, protect2 强制使用 attacker_global
-    RANDOM_OPPONENT_WEIGHTS = {
-        "attacker": {
-            "attacker_static": 1.0,  # protect1 默认
-            # "attacker_global": 1.0,  # protect2 使用
-        }
-    }
 
 
 class NetParameters:
@@ -161,7 +147,7 @@ class RecordingParameters:
     TIME = datetime.datetime.now().strftime("_%m-%d-%H-%M")
     
     RETRAIN = False           # 是否继续训练 (加载权重和进度)
-    FRESH_RETRAIN = True     # 仅加载模型权重，重置训练进度和学习率调度
+    FRESH_RETRAIN = False     # 仅加载模型权重，重置训练进度和学习率调度
     RESTORE_DIR = "./models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28/models/best_model.pth"          # 恢复模型的目录
     
     TENSORBOARD = True        # 是否使用TensorBoard

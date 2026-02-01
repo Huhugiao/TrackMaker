@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hrl.hrl_env import HRLEnv
 
 def test():
-    model_path = "/home/ace/miniconda3/envs/lnenv/trackmaker/models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28/models/best_model.pth"
+    model_path = "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_01-29-10-05/best_model.pth"
     print(f"Testing HRLEnv with model: {model_path}")
     
     try:

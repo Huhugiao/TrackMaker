@@ -36,7 +36,7 @@ class HRLEnv(gym.Env):
         self.protect_net = DefenderNetMLP().to(device)
         self.protect_net.eval()
         try:
-            checkpoint = torch.load(protect_model_path, map_location=device)
+            checkpoint = torch.load(protect_model_path, map_location=device, weights_only=False)
             if 'model' in checkpoint:
                 self.protect_net.load_state_dict(checkpoint['model'])
             else:

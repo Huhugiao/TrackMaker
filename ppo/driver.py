@@ -98,7 +98,6 @@ def main():
     print(f"Training Mode: {TrainingParameters.TRAINING_MODE}")
     if TrainingParameters.TRAINING_MODE == 'mixed':
         print(f"IL Anneal: {TrainingParameters.IL_INITIAL_WEIGHT} -> {TrainingParameters.IL_FINAL_WEIGHT} over {TrainingParameters.IL_ANNEAL_STEPS:,} steps")
-    print(f"Opponent Weights: {TrainingParameters.RANDOM_OPPONENT_WEIGHTS}")
     print(f"Num Runners: {TrainingParameters.N_ENVS}")
     print(f"Steps per Runner: {TrainingParameters.N_STEPS}")
     if retrain:

@@ -5,3 +5,4 @@ models/
 *.nbc
 *.log
 .vscode/
+plots/

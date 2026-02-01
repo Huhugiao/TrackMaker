@@ -1,7 +1,12 @@
 """
-HRL Top Level Training
+Baseline End-to-End PPO Training
 
-训练高层策略来混合 Protect 和 Chase 两个技能。
+使用与HRL相同的环境设置(reward_mode='standard', 相同的attacker策略),
+但直接训练一个端到端的策略,不使用技能分层.
+用于作为HRL分层策略的baseline比较.
+
+运行方式:
+    python hrl/train_baseline.py
 """
 
 import os
@@ -19,21 +24,19 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.model import Model
 from ppo.util import set_global_seeds, write_to_tensorboard, make_gif
-from hrl.hrl_runner import HRLRunner
+from hrl.baseline_runner import BaselineRunner
 
-# Override parameters for HRL
-SetupParameters.SKILL_MODE = 'hrl'
-RecordingParameters.MODEL_PATH = f"models/hrl_{datetime.now().strftime('%m-%d-%H-%M')}"
-RecordingParameters.SUMMARY_PATH = f"models/hrl_{datetime.now().strftime('%m-%d-%H-%M')}/summary"
+# Override parameters for Baseline
+SetupParameters.SKILL_MODE = 'baseline'
+RecordingParameters.MODEL_PATH = f"models/baseline_{datetime.now().strftime('%m-%d-%H-%M')}"
+RecordingParameters.SUMMARY_PATH = f"models/baseline_{datetime.now().strftime('%m-%d-%H-%M')}/summary"
 
-def cosine_anneal_il_weight(current_step: int) -> float:
-    return 0.0 # No IL for HRL yet
 
 def main():
     set_global_seeds(SetupParameters.SEED)
     
     timestamp = datetime.now().strftime('%m-%d-%H-%M')
-    run_name = f"HRL_TopLevel_{timestamp}"
+    run_name = f"Baseline_E2E_{timestamp}"
     
     model_dir = RecordingParameters.MODEL_PATH
     gif_dir = os.path.join(model_dir, 'gifs')
@@ -48,9 +51,12 @@ def main():
         summary_writer = SummaryWriter(log_dir)
     
     print("=" * 60)
-    print(f"HRL Top Level Training - {run_name}")
+    print(f"Baseline End-to-End PPO Training - {run_name}")
     print(f"Num Runners: {TrainingParameters.N_ENVS}")
     print(f"GIF Interval: {RecordingParameters.GIF_INTERVAL:,} steps")
+    print("=" * 60)
+    print("Note: This is a baseline for comparison with HRL.")
+    print("      Using same environment (reward_mode='standard') and attacker strategies.")
     print("=" * 60)
     
     ray.init(num_cpus=TrainingParameters.N_ENVS, num_gpus=SetupParameters.NUM_GPU)
@@ -58,8 +64,8 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() and SetupParameters.USE_GPU_GLOBAL else 'cpu')
     model = Model(device=device, global_model=True)
     
-    # Initialize HRL Runners with random attacker strategies
-    runners = [HRLRunner.remote(i, env_configs={'attacker_strategy': 'random'}) for i in range(TrainingParameters.N_ENVS)]
+    # Initialize Baseline Runners with random attacker strategies
+    runners = [BaselineRunner.remote(i, env_configs={'attacker_strategy': 'random'}) for i in range(TrainingParameters.N_ENVS)]
     
     global_step = 0
     best_reward = -float('inf')
@@ -68,6 +74,7 @@ def main():
     total_updates = int(TrainingParameters.N_MAX_STEPS // (TrainingParameters.N_ENVS * TrainingParameters.N_STEPS))
     
     print(f"\nStarting training for {total_updates} updates...")
+    print(f"Total environment steps: {TrainingParameters.N_MAX_STEPS:,}")
     
     start_time = time.time()
     
@@ -111,8 +118,14 @@ def main():
         # Logging
         if (global_step // TrainingParameters.LOG_EPOCH_STEPS) > ((global_step - steps_this_update) // TrainingParameters.LOG_EPOCH_STEPS):
             mean_reward = np.mean(all_perf['per_r']) if all_perf['per_r'] else 0.0
+            mean_ep_len = np.mean(all_perf['per_episode_len']) if all_perf['per_episode_len'] else 0.0
             win_rate = np.mean(all_perf['win']) if all_perf['win'] else 0.0
-            print(f"Step {global_step:,} | Reward: {mean_reward:.2f} | Win: {win_rate:.2%}")
+            progress = global_step / total_steps * 100
+            
+            print(f"Step {global_step:,} ({progress:.1f}%) | "
+                  f"Reward: {mean_reward:.2f} | "
+                  f"EpLen: {mean_ep_len:.1f} | "
+                  f"Win: {win_rate:.2%}")
             
             write_to_tensorboard(
                 summary_writer, global_step,
@@ -136,8 +149,12 @@ def main():
             
             eval_perf = eval_result['perf']
             eval_reward = np.mean(eval_perf['per_r']) if eval_perf['per_r'] else 0.0
+            eval_ep_len = np.mean(eval_perf['per_episode_len']) if eval_perf['per_episode_len'] else 0.0
             eval_win = np.mean(eval_perf['win']) if eval_perf['win'] else 0.0
-            print(f"Eval Reward: {eval_reward:.2f} | Win: {eval_win:.2%}")
+            
+            print(f"Eval Reward: {eval_reward:.2f} | "
+                  f"Eval EpLen: {eval_ep_len:.1f} | "
+                  f"Eval Win: {eval_win:.2%}")
             
             write_to_tensorboard(
                 summary_writer, global_step,
@@ -174,6 +191,7 @@ def main():
         summary_writer.close()
     
     ray.shutdown()
+
 
 if __name__ == '__main__':
     main()

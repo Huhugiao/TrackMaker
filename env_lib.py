@@ -794,16 +794,16 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
                            capture_progress_defender=0, capture_progress_attacker=0,
                            capture_required_steps=0, radar=None):
     """
-    奖励函数用于训练追踪attacker的skill
+    纯追逃奖励函数 - 用于训练 Chase 技能
 
     特点：
+    - 纯追逃环境：忽略 target 的任何判定（attacker_captured 不触发终止）
     - 有时间惩罚：每步-0.02（总共约-10）
-    - defender捕获attacker: +20
-    - attacker到达target: -20
-    - defender碰撞障碍物: -20
+    - defender捕获attacker: +20，episode结束
+    - defender碰撞障碍物: -20，episode结束
     - attacker碰撞障碍物: 不结束episode
     - 超时算defender失败: 无额外奖励
-    - 使用GRU预测器
+    - 不使用GRU预测器
     """
     info = {
         'capture_progress_defender': int(capture_progress_defender),
@@ -821,23 +821,19 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
 
-    # 终止奖励
+    # 终止奖励 - 纯追逃：只关心 defender 捕获 attacker，忽略 target
     if defender_captured:
         terminated = True
         info['reason'] = 'defender_caught_attacker'
         info['win'] = True
         reward += success_reward
-    elif attacker_captured:
-        terminated = True
-        info['reason'] = 'attacker_caught_target'
-        info['win'] = False
-        reward -= success_reward
     elif defender_collision:
         terminated = True
         reward -= success_reward
         info['reason'] = 'defender_collision'
         info['win'] = False
-    # attacker_collision 不影响 episode 终止，仅记录在 info 中
+    # 注意：attacker_captured (attacker到达target) 被忽略，不触发终止
+    # attacker_collision 也不影响 episode 终止，仅记录在 info 中
 
     return float(reward), bool(terminated), False, info
 

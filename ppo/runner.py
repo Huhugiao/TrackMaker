@@ -15,6 +15,7 @@ import map_config
 from map_config import EnvParameters
 from env import TADEnv
 from rule_policies import AttackerAPFPolicy, AttackerGlobalPolicy, AttackerStaticPolicy
+from rule_policies.attacker_global import ALL_STRATEGIES
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
@@ -57,37 +58,34 @@ class Runner:
         )
     
     def _create_opponent_policies(self) -> Dict[str, Any]:
+        """创建对手策略池"""
         policies = {}
-        # 始终包含 protect1/protect2 所需的策略
         skill_mode = SetupParameters.SKILL_MODE
+        
         if skill_mode == 'protect1':
+            # protect1: 静止对手
             policies['attacker_static'] = ATTACKER_POLICY_REGISTRY['attacker_static']
-        elif skill_mode == 'protect2':
-            policies['attacker_global'] = ATTACKER_POLICY_REGISTRY['attacker_global']
         else:
-            # 其他模式：根据配置创建
-            weights_cfg = TrainingParameters.RANDOM_OPPONENT_WEIGHTS.get('attacker', {})
-            for key in weights_cfg.keys():
-                if key in ATTACKER_POLICY_REGISTRY:
-                    policy_cls = ATTACKER_POLICY_REGISTRY[key]
-                    policies[key] = policy_cls
+            # protect2, chase, 其他模式: 使用所有策略（AttackerGlobalPolicy支持的所有策略）
+            policies['attacker_global'] = ATTACKER_POLICY_REGISTRY['attacker_global']
         return policies
     
-    def _sample_opponent_policy(self) -> str:
-        # protect1/protect2 强制使用指定对手策略
-        skill_mode = SetupParameters.SKILL_MODE
-        if skill_mode == 'protect1':
-            return 'attacker_static'  # 阶段1: 静止对手
-        elif skill_mode == 'protect2':
-            return 'attacker_global'  # 阶段2: 导航对手
+    def _sample_opponent_policy(self) -> Tuple[str, Optional[str]]:
+        """
+        采样对手策略
         
-        # 其他模式按配置的权重随机采样
-        weights_cfg = TrainingParameters.RANDOM_OPPONENT_WEIGHTS.get('attacker', {})
-        keys = list(weights_cfg.keys())
-        probs = np.array([weights_cfg[k] for k in keys], dtype=np.float64)
-        probs = probs / probs.sum()
-        chosen = np.random.choice(keys, p=probs)
-        return chosen
+        Returns:
+            (policy_key, strategy): policy_key 是 ATTACKER_POLICY_REGISTRY 中的键，
+                                   strategy 是 AttackerGlobalPolicy 的具体策略（如 'default', 'zigzag' 等）
+        """
+        skill_mode = SetupParameters.SKILL_MODE
+        
+        if skill_mode == 'protect1':
+            return 'attacker_static', None  # 阶段1: 静止对手
+        else:
+            # protect2, chase, 其他模式: 从 ALL_STRATEGIES 随机选择
+            strategy = np.random.choice(ALL_STRATEGIES)
+            return 'attacker_global', strategy
     
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):
         """
@@ -97,16 +95,26 @@ class Runner:
             for_eval: 是否为评估模式（使用评估种子设置）
             episode_idx: 当前episode索引（用于固定种子时区分不同episode）
         """
-        self.current_opponent_key = self._sample_opponent_policy()
-        policy_cls = self.opponent_policies.get(self.current_opponent_key)
+        policy_key, strategy = self._sample_opponent_policy()
+        self.current_opponent_key = policy_key
+        policy_cls = self.opponent_policies.get(policy_key)
         
-        # Instantiate policy
-        self.attacker_policy = policy_cls(
-            env_width=self.env.width,
-            env_height=self.env.height,
-            attacker_speed=self.env.attacker_speed,
-            attacker_max_turn=getattr(map_config, 'attacker_max_angular_speed', 12.0)
-        )
+        # Instantiate policy with strategy if applicable
+        if policy_key == 'attacker_global' and strategy is not None:
+            self.attacker_policy = policy_cls(
+                env_width=self.env.width,
+                env_height=self.env.height,
+                attacker_speed=self.env.attacker_speed,
+                attacker_max_turn=getattr(map_config, 'attacker_max_angular_speed', 12.0),
+                strategy=strategy
+            )
+        else:
+            self.attacker_policy = policy_cls(
+                env_width=self.env.width,
+                env_height=self.env.height,
+                attacker_speed=self.env.attacker_speed,
+                attacker_max_turn=getattr(map_config, 'attacker_max_angular_speed', 12.0)
+            )
         self.attacker_policy.reset()
         
         # Reset environment with random or fixed seed

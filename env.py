@@ -447,8 +447,7 @@ class TADEnv(gym.Env):
                 capture_progress_defender=int(self._capture_counter_defender),
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt
+                radar=defender_radar
             )
         else:  # 'standard'
             reward, terminated, truncated, info = env_lib.reward_calculate_tad(

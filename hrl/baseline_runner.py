@@ -1,3 +1,8 @@
+"""
+Baseline Runner for End-to-End PPO Training
+
+使用BaselineEnv进行PPO训练,作为HRL的baseline比较.
+"""
 
 import os
 import ray
@@ -8,35 +13,27 @@ from typing import Dict, List, Any, Optional
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.nets import DefenderNetMLP
 from ppo.util import build_critic_observation, update_perf
-from hrl.hrl_env import HRLEnv
+from hrl.baseline_env import BaselineEnv
 from map_config import EnvParameters
 
 @ray.remote(num_cpus=1, num_gpus=SetupParameters.NUM_GPU / TrainingParameters.N_ENVS if SetupParameters.NUM_GPU > 0 else 0)
-class HRLRunner:
+class BaselineRunner:
     def __init__(self, meta_agent_id: int, env_configs: Dict = None):
         self.meta_agent_id = meta_agent_id
         self.env_configs = env_configs or {}
         
         self.device = torch.device('cuda' if torch.cuda.is_available() and SetupParameters.USE_GPU_LOCAL else 'cpu')
         
-        # Top-Level Network (Same logic as DefenderNetMLP)
+        # End-to-end Network
         self.local_network = DefenderNetMLP().to(self.device)
         self.local_network.eval()
-        
-        self.protect_model_path = "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_01-29-10-05/best_model.pth"
         
         self._init_env()
         self._reset()
     
     def _init_env(self):
-        # We can pass attacker strategy via env_configs if we want
-        attacker_strat = self.env_configs.get('attacker_strategy', 'default')
-        self.env = HRLEnv(
-            protect_model_path=self.protect_model_path,
-            attacker_strategy=attacker_strat,
-            device=str(self.device)
-        )
-        # Note: HRLEnv handles loading Protect Model and Chasing Policy
+        attacker_strat = self.env_configs.get('attacker_strategy', 'random')
+        self.env = BaselineEnv(attacker_strategy=attacker_strat)
         
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):
         if for_eval:
@@ -62,7 +59,7 @@ class HRLRunner:
         self.local_network.eval()
     
     def run(self, num_steps: int) -> Dict[str, np.ndarray]:
-        # Collects rollouts for Top Level Policy
+        """Collects rollouts for End-to-End PPO Training"""
         mb_obs = []
         mb_critic_obs = []
         mb_actions = []
@@ -94,8 +91,7 @@ class HRLRunner:
             mb_log_probs.append(log_prob)
             mb_values.append(value)
             
-            # Step environment handles skills internally
-            # Action passed is 2 dims (tanh output)
+            # Step environment with direct action (no skill mixing)
             obs, reward, terminated, truncated, info = self.env.step(tanh_action)
             done = terminated or truncated
             
@@ -157,7 +153,7 @@ class HRLRunner:
             'returns': mb_returns,
             'advs': mb_advs,
             'dones': mb_dones,
-            'expert_actions': None, # No IL for top level yet
+            'expert_actions': None,
             'perf': perf
         }
     
@@ -173,7 +169,7 @@ class HRLRunner:
             
             while not self.done:
                 if record_gif and ep_idx == 0:
-                    frame = self.env.env.render(mode='rgb_array') # Call inner env render
+                    frame = self.env.env.render(mode='rgb_array')
                     if frame is not None:
                         ep_frames.append(frame)
                         
@@ -186,7 +182,6 @@ class HRLRunner:
                      if greedy:
                          action = torch.tanh(mean).cpu().numpy().flatten()
                      else:
-                         # Sample for eval if not greedy
                          std = torch.exp(self.local_network.log_std)
                          dist = torch.distributions.Normal(mean, std)
                          action = torch.tanh(dist.sample()).cpu().numpy().flatten()
