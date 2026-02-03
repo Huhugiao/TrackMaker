@@ -447,7 +447,8 @@ class TADEnv(gym.Env):
                 capture_progress_defender=int(self._capture_counter_defender),
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar
+                radar=defender_radar,
+                initial_dist_def_att=self.initial_dist_def_att
             )
         else:  # 'standard'
             reward, terminated, truncated, info = env_lib.reward_calculate_tad(
@@ -525,6 +526,11 @@ class TADEnv(gym.Env):
         dx_init = (self.defender['x'] + self.pixel_size * 0.5) - (self.target['x'] + self.pixel_size * 0.5)
         dy_init = (self.defender['y'] + self.pixel_size * 0.5) - (self.target['y'] + self.pixel_size * 0.5)
         self.initial_dist_def_tgt = math.hypot(dx_init, dy_init)
+        
+        # Calculate initial distance between defender and attacker (for chase reward)
+        dx_def_att = (self.defender['x'] + self.pixel_size * 0.5) - (self.attacker['x'] + self.pixel_size * 0.5)
+        dy_def_att = (self.defender['y'] + self.pixel_size * 0.5) - (self.attacker['y'] + self.pixel_size * 0.5)
+        self.initial_dist_def_att = math.hypot(dx_def_att, dy_def_att)
         self.defender_trajectory = []
         self.attacker_trajectory = []
 

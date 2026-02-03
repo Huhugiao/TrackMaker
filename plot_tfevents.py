@@ -32,11 +32,11 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 EXPERIMENTS = [
     # ↓↓↓ 在这里添加你的实验，格式：("图例名称", "文件夹路径") ↓↓↓
     
-    # ("Baseline", "models/baseline_01-30-22-19/summary"),
+    # ("PPO_only", "models/baseline_01-30-22-19/summary"),
     # ("HRL", "models/hrl_01-30-17-06/summary"),
-    # ("Chase策略", "models/defender_chase_dense_01-31-21-59"),
-    ("Protect_stage1", "models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28"),
-    ("Protect_stage2", "models/defender_protect2_dense_01-29-10-05"),
+    ("Chase", "models/defender_chase_dense_02-02-11-00"),
+    # ("Protect_stage1", "models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28"),
+    # ("Protect_stage2", "models/defender_protect2_dense_01-29-10-05"),
     
     # ↑↑↑ 添加更多实验只需复制上面一行并修改 ↑↑↑
 ]
@@ -70,7 +70,7 @@ SHOW_STD = False            # 是否显示标准差区间
 # │     设置为 None 表示自动范围，或设置具体数值限制范围                            │
 # └──────────────────────────────────────────────────────────────────────────────┘
 X_MIN = None                # 横轴最小值 (None=自动, 或填数字如 0)
-X_MAX = None                # 横轴最大值 (None=自动, 或填数字如 1e8)
+X_MAX = 2e7                # 横轴最大值 (None=自动, 或填数字如 1e8)
 
 # 示例：
 # X_MIN = 0                 # 从0开始
@@ -101,16 +101,16 @@ MAX_COLS = 3                # 每行最多几个子图
 
 # 配色方案
 COLORS = [
-    '#1f77b4',  # 蓝
-    '#ff7f0e',  # 橙
-    '#2ca02c',  # 绿
-    '#d62728',  # 红
+    # '#1f77b4',  # 蓝
+    # '#ff7f0e',  # 橙
+    # '#2ca02c',  # 绿
+    # '#d62728',  # 红
     '#9467bd',  # 紫
-    '#8c564b',  # 棕
-    '#e377c2',  # 粉
-    '#7f7f7f',  # 灰
-    '#bcbd22',  # 黄绿
-    '#17becf',  # 青
+    # '#8c564b',  # 棕
+    # '#e377c2',  # 粉
+    # '#7f7f7f',  # 灰
+    # '#bcbd22',  # 黄绿
+    # '#17becf',  # 青
 ]
 
 

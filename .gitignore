@@ -6,3 +6,4 @@ models/
 *.log
 .vscode/
 plots/
+output/
