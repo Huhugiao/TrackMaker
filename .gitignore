@@ -1,9 +1,9 @@
-models/
 *.bak2
 *.pyc
 *.nbi
 *.nbc
 *.log
+*.gif
 .vscode/
 plots/
 output/
