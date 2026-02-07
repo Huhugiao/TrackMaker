@@ -7,17 +7,33 @@ from typing import Dict, List, Any, Optional
 
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.nets import DefenderNetMLP
-from ppo.util import build_critic_observation, update_perf
+from ppo.util import build_critic_observation, update_perf, get_device, get_num_gpus, get_adjusted_n_envs
 from hrl.hrl_env import HRLEnv
 from map_config import EnvParameters
 
-@ray.remote(num_cpus=1, num_gpus=SetupParameters.NUM_GPU / TrainingParameters.N_ENVS if SetupParameters.NUM_GPU > 0 else 0)
+
+def _compute_runner_gpu_fraction():
+    """计算每个Runner应该分配的GPU比例
+    
+    所有Runner共享同一个GPU（由SetupParameters.GPU_ID指定）
+    每个Runner分配 1/n_envs 的GPU资源份额
+    """
+    from ppo.util import is_gpu_available
+    n_envs = get_adjusted_n_envs(TrainingParameters.N_ENVS)
+    if is_gpu_available() and n_envs > 0:
+        # 所有Runner共享1个GPU，每个分配 1/n_envs 份额
+        return 1.0 / n_envs
+    return 0
+
+
+@ray.remote(num_cpus=1, num_gpus=_compute_runner_gpu_fraction())
 class HRLRunner:
     def __init__(self, meta_agent_id: int, env_configs: Dict = None):
         self.meta_agent_id = meta_agent_id
         self.env_configs = env_configs or {}
         
-        self.device = torch.device('cuda' if torch.cuda.is_available() and SetupParameters.USE_GPU_LOCAL else 'cpu')
+        # 使用安全的设备检测
+        self.device = get_device(prefer_gpu=True)
         
         # Top-Level Network (Same logic as DefenderNetMLP)
         self.local_network = DefenderNetMLP().to(self.device)

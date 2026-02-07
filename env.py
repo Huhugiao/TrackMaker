@@ -51,6 +51,7 @@ class TADEnv(gym.Env):
         self.capture_required_steps = int(getattr(map_config, 'capture_required_steps', 1))
         self._capture_counter_defender = 0
         self._capture_counter_attacker = 0
+        self._collision_cooldown = 0  # 碰撞冷却计数器（protect1用）
 
         self.last_observed_attacker_pos = None
         self.steps_since_observed = 0
@@ -371,6 +372,9 @@ class TADEnv(gym.Env):
         defender_center_x = self.defender['x'] + self.pixel_size * 0.5
         defender_center_y = self.defender['y'] + self.pixel_size * 0.5
         defender_blocked = env_lib.is_point_blocked(defender_center_x, defender_center_y, padding=agent_radius)
+        if defender_blocked:
+            # Defender 碰撞时回滚位置，避免穿墙
+            self.defender = env_lib._resolve_obstacle_collision(self.prev_defender_pos, self.defender)
         attacker_center_x = self.attacker['x'] + self.pixel_size * 0.5
         attacker_center_y = self.attacker['y'] + self.pixel_size * 0.5
         attacker_blocked = env_lib.is_point_blocked(attacker_center_x, attacker_center_y, padding=agent_radius)
@@ -390,22 +394,7 @@ class TADEnv(gym.Env):
         defender_radar = self._sense_agent_radar(self.defender, num_rays=self.radar_rays, full_circle=True)
 
         # Calculate reward based on reward_mode
-        if self.reward_mode == 'protect':
-            reward, terminated, truncated, info = env_lib.reward_calculate_protect(
-                self.defender, self.attacker, self.target,
-                prev_defender=self.prev_defender_pos,
-                prev_attacker=self.prev_attacker_pos,
-                defender_collision=bool(defender_blocked),
-                attacker_collision=bool(attacker_blocked),
-                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
-                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
-                capture_progress_defender=int(self._capture_counter_defender),
-                capture_progress_attacker=int(self._capture_counter_attacker),
-                capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt
-            )
-        elif self.reward_mode == 'protect1':
+        if self.reward_mode == 'protect1':
             reward, terminated, truncated, info = env_lib.reward_calculate_protect1(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
@@ -418,8 +407,14 @@ class TADEnv(gym.Env):
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
                 radar=defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt
+                initial_dist_def_tgt=self.initial_dist_def_tgt,
+                collision_cooldown=self._collision_cooldown
             )
+            # 更新碰撞冷却计数器
+            if defender_blocked and self._collision_cooldown == 0:
+                self._collision_cooldown = 10  # 碰撞后进入10步冷却
+            elif self._collision_cooldown > 0:
+                self._collision_cooldown -= 1
         elif self.reward_mode == 'protect2':
             reward, terminated, truncated, info = env_lib.reward_calculate_protect2(
                 self.defender, self.attacker, self.target,
@@ -543,7 +538,7 @@ class TADEnv(gym.Env):
         self.steps_since_observed = 0
         self._capture_counter_defender = 0
         self._capture_counter_attacker = 0
-        self._best_distance_attacker = float(math.hypot(self.defender['x'] - self.attacker['x'], self.defender['y'] - self.attacker['y']))
+        self._collision_cooldown = 0  # 碰撞冷却计数器（protect1用）
         self._best_distance_target = float(math.hypot(self.attacker['x'] - self.target['x'], self.attacker['y'] - self.target['y']))
 
         self._fov_cache = None

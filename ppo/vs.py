@@ -20,7 +20,7 @@ import map_config
 from map_config import EnvParameters, set_obstacle_density
 import env_lib
 from ppo.model import Model
-from ppo.util import build_critic_observation
+from ppo.util import build_critic_observation, get_device, print_device_info
 from ppo.alg_parameters import SetupParameters
 
 # Import Rule Policies
@@ -61,7 +61,8 @@ class Defenderevaluator:
         device: str = 'cpu'
     ):
         self.strategy = strategy
-        self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
+        # 使用安全的GPU检测
+        self.device = get_device(prefer_gpu=(device == 'cuda'))
         
         # RL策略列表
         rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase']

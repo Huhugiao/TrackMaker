@@ -9,6 +9,22 @@ TAD PPO Driver - 主训练循环
 
 import os
 import os.path as osp
+
+# 关键：必须在import torch之前设置CUDA_VISIBLE_DEVICES
+# 从alg_parameters读取GPU_ID（这里用简单方式避免循环导入）
+_gpu_id_file = osp.join(osp.dirname(__file__), 'alg_parameters.py')
+_gpu_id = 1  # 默认值
+try:
+    with open(_gpu_id_file, 'r') as f:
+        for line in f:
+            if 'GPU_ID' in line and '=' in line and not line.strip().startswith('#'):
+                _gpu_id = int(line.split('=')[1].strip().split('#')[0].strip())
+                break
+except:
+    pass
+os.environ['CUDA_VISIBLE_DEVICES'] = str(_gpu_id)
+print(f"[GPU] CUDA_VISIBLE_DEVICES={_gpu_id} (在import torch之前设置)")
+
 import time
 import math
 import numpy as np
@@ -25,7 +41,7 @@ sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.model import Model
 from ppo.runner import Runner
-from ppo.util import set_global_seeds, write_to_tensorboard, make_gif
+from ppo.util import set_global_seeds, write_to_tensorboard, make_gif, get_device, get_num_gpus, print_device_info, get_adjusted_n_envs, print_ram_info, get_ray_temp_dir, is_gpu_available, is_gpu_available
 
 from map_config import EnvParameters
 
@@ -57,6 +73,9 @@ def cosine_anneal_il_weight(current_step: int) -> float:
 
 def main():
     set_global_seeds(SetupParameters.SEED)
+    
+    # 打印设备信息
+    print_device_info()
     
     # =========== RETRAIN / FRESH_RETRAIN 加载逻辑 ===========
     model_dict = None
@@ -92,13 +111,22 @@ def main():
         os.makedirs(log_dir, exist_ok=True)
         summary_writer = SummaryWriter(log_dir)
     
+    # 使用安全的GPU检测
+    print_ram_info()
+    
+    # 根据RAM调整并行环境数量
+    n_envs = get_adjusted_n_envs(TrainingParameters.N_ENVS)
+    num_gpus = get_num_gpus()
+    device = get_device(prefer_gpu=True)
+    
     print("=" * 60)
     print(f"TAD PPO Training - {run_name}")
     print(f"Skill Mode: {SetupParameters.SKILL_MODE}")
     print(f"Training Mode: {TrainingParameters.TRAINING_MODE}")
+    print(f"Device: {device} (可用GPU数量: {num_gpus})")
     if TrainingParameters.TRAINING_MODE == 'mixed':
         print(f"IL Anneal: {TrainingParameters.IL_INITIAL_WEIGHT} -> {TrainingParameters.IL_FINAL_WEIGHT} over {TrainingParameters.IL_ANNEAL_STEPS:,} steps")
-    print(f"Num Runners: {TrainingParameters.N_ENVS}")
+    print(f"Num Runners: {n_envs}")
     print(f"Steps per Runner: {TrainingParameters.N_STEPS}")
     if retrain:
         print(f"RETRAIN: True (继续训练，恢复进度)")
@@ -106,9 +134,16 @@ def main():
         print(f"FRESH_RETRAIN: True (加载权重，重置进度)")
     print("=" * 60)
     
-    ray.init(num_cpus=TrainingParameters.N_ENVS, num_gpus=SetupParameters.NUM_GPU)
+    # 使用指定的单个GPU初始化Ray（由SetupParameters.GPU_ID控制）
+    # 注意：CUDA_VISIBLE_DEVICES已在文件开头设置，Ray将只能看到指定的GPU
+    ray_tmp = get_ray_temp_dir()
+    # 只分配1个GPU给Ray，所有Runner共享这个GPU
+    ray_num_gpus = 1 if is_gpu_available() else 0
+    if ray_tmp:
+        ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus, _temp_dir=ray_tmp)
+    else:
+        ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus)
     
-    device = torch.device('cuda' if torch.cuda.is_available() and SetupParameters.USE_GPU_GLOBAL else 'cpu')
     model = Model(device=device, global_model=True)
     
     # 加载模型权重 (RETRAIN 或 FRESH_RETRAIN)
@@ -121,7 +156,7 @@ def main():
             model.set_weights(model_dict)
         print("[INFO] Model weights loaded successfully")
     
-    runners = [Runner.remote(i) for i in range(TrainingParameters.N_ENVS)]
+    runners = [Runner.remote(i) for i in range(n_envs)]
     
     # FRESH_RETRAIN: 重置进度; RETRAIN: 恢复进度
     if model_dict and not fresh_retrain:
@@ -141,7 +176,7 @@ def main():
         best_reward = -float('inf')
     
     total_steps = int(TrainingParameters.N_MAX_STEPS)
-    total_updates = int(TrainingParameters.N_MAX_STEPS // (TrainingParameters.N_ENVS * TrainingParameters.N_STEPS))
+    total_updates = int(TrainingParameters.N_MAX_STEPS // (n_envs * TrainingParameters.N_STEPS))
     
     print(f"\nStarting training for {total_updates} updates...")
     print(f"Total environment steps: {TrainingParameters.N_MAX_STEPS:,}")
@@ -226,7 +261,7 @@ def main():
             
             il_loss = [mb_loss.get('il_loss', 0.0), 0.0]  # [loss, grad_norm]
         
-        steps_this_update = TrainingParameters.N_ENVS * TrainingParameters.N_STEPS
+        steps_this_update = n_envs * TrainingParameters.N_STEPS
         global_step += steps_this_update
         
         if (global_step // TrainingParameters.LOG_EPOCH_STEPS) > ((global_step - steps_this_update) // TrainingParameters.LOG_EPOCH_STEPS):

@@ -16,6 +16,187 @@ from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameter
 from map_config import EnvParameters
 
 
+def get_device(prefer_gpu: bool = True, gpu_id: int = None) -> torch.device:
+    """
+    安全地获取可用的计算设备。
+    
+    此函数可以在没有安装CUDA的机器上安全运行，不会抛出异常。
+    
+    注意：在Ray worker中，Ray会通过CUDA_VISIBLE_DEVICES隔离GPU，
+    所以worker内部只能看到1个GPU（索引为0），即使系统有多个GPU。
+    
+    Args:
+        prefer_gpu: 是否优先使用GPU（如果可用）
+        gpu_id: 指定GPU序号（0或1等），为None时使用SetupParameters.GPU_ID
+                在Ray worker中此参数会被忽略，直接使用cuda:0
+        
+    Returns:
+        torch.device: 可用的设备（'cuda:X' 或 'cpu'）
+    """
+    import os
+    
+    if not prefer_gpu:
+        return torch.device('cpu')
+    
+    # 检测是否在Ray worker中运行
+    # Ray会设置CUDA_VISIBLE_DEVICES来隔离GPU，此时worker只能看到分配给它的那个GPU
+    in_ray_worker = 'RAY_WORKER_PID' in os.environ or 'CUDA_VISIBLE_DEVICES' in os.environ
+    
+    # 获取GPU ID
+    if gpu_id is None:
+        from ppo.alg_parameters import SetupParameters
+        gpu_id = SetupParameters.GPU_ID
+    
+    try:
+        # 检查PyTorch是否编译了CUDA支持
+        if not torch.cuda.is_available():
+            return torch.device('cpu')
+        
+        # 尝试获取GPU数量，这会触发CUDA初始化
+        device_count = torch.cuda.device_count()
+        if device_count == 0:
+            return torch.device('cpu')
+        
+        # 在Ray worker中，由于GPU隔离，直接使用cuda:0
+        if in_ray_worker:
+            gpu_id = 0
+        elif gpu_id >= device_count:
+            # 主进程中检查gpu_id范围
+            print(f"[警告] GPU_ID={gpu_id} 超出范围，只有{device_count}个GPU，使用GPU 0")
+            gpu_id = 0
+        
+        # 尝试在指定GPU上创建一个小张量来验证CUDA是否真正可用
+        try:
+            device_str = f'cuda:{gpu_id}'
+            test_tensor = torch.zeros(1, device=device_str)
+            del test_tensor
+            return torch.device(device_str)
+        except Exception:
+            return torch.device('cpu')
+            
+    except Exception:
+        # 任何异常都回退到CPU
+        return torch.device('cpu')
+
+
+def is_gpu_available() -> bool:
+    """
+    安全地检查GPU是否可用。
+    
+    此函数可以在没有安装CUDA的机器上安全运行。
+    
+    Returns:
+        bool: GPU是否可用
+    """
+    return get_device(prefer_gpu=True).type == 'cuda'
+
+
+def get_num_gpus() -> int:
+    """
+    安全地获取可用的GPU数量。
+    
+    此函数可以在没有安装CUDA的机器上安全运行。
+    
+    Returns:
+        int: 可用的GPU数量（如果CUDA不可用则返回0）
+    """
+    try:
+        if not torch.cuda.is_available():
+            return 0
+        return torch.cuda.device_count()
+    except Exception:
+        return 0
+
+
+def print_device_info():
+    """打印设备信息，用于调试"""
+    device = get_device(prefer_gpu=True)
+    num_gpus = get_num_gpus()
+    
+    print("=" * 50)
+    print("设备信息 (Device Information)")
+    print("=" * 50)
+    print(f"PyTorch版本: {torch.__version__}")
+    print(f"CUDA是否可用: {is_gpu_available()}")
+    print(f"GPU数量: {num_gpus}")
+    print(f"当前使用设备: {device}")
+    
+    if device.type == 'cuda':
+        try:
+            print(f"GPU名称: {torch.cuda.get_device_name(0)}")
+            print(f"GPU显存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        except Exception as e:
+            print(f"无法获取GPU详细信息: {e}")
+    print("=" * 50)
+
+
+
+def get_free_ram_gb() -> float:
+    """
+    获取当前系统空闲RAM大小（GB）。
+    
+    Returns:
+        float: 空闲RAM大小，单位GB。如果无法获取则返回0。
+    """
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        return mem.available / (1024 ** 3)
+    except ImportError:
+        # psutil未安装，尝试读取/proc/meminfo (Linux)
+        try:
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    if line.startswith("MemAvailable:"):
+                        # MemAvailable: 12345678 kB
+                        parts = line.split()
+                        return float(parts[1]) / (1024 ** 2)  # kB -> GB
+        except Exception:
+            pass
+        return 0.0
+    except Exception:
+        return 0.0
+
+
+def get_adjusted_n_envs(base_n_envs: int, ram_threshold_gb: float = 20.0, multiplier: int = 6) -> int:
+    """
+    根据空闲RAM大小动态调整并行环境数量。
+    
+    如果空闲RAM大于阈值，则将环境数量乘以倍数。
+    
+    Args:
+        base_n_envs: 基础并行环境数量
+        ram_threshold_gb: RAM阈值（GB），默认20GB
+        multiplier: 乘数，默认6倍
+        
+    Returns:
+        int: 调整后的并行环境数量
+    """
+    free_ram = get_free_ram_gb()
+    
+    if free_ram > ram_threshold_gb:
+        adjusted = base_n_envs * multiplier
+        print(f"[RAM检测] 空闲RAM: {free_ram:.1f}GB > {ram_threshold_gb}GB 阈值")
+        print(f"[RAM检测] 并行环境数量: {base_n_envs} -> {adjusted} (x{multiplier})")
+        return adjusted
+    else:
+        print(f"[RAM检测] 空闲RAM: {free_ram:.1f}GB <= {ram_threshold_gb}GB 阈值")
+        print(f"[RAM检测] 保持并行环境数量: {base_n_envs}")
+        return base_n_envs
+
+
+def print_ram_info():
+    """打印RAM信息，用于调试"""
+    free_ram = get_free_ram_gb()
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        total_ram = mem.total / (1024 ** 3)
+        used_ram = mem.used / (1024 ** 3)
+        print(f"[RAM信息] 总计: {total_ram:.1f}GB, 已用: {used_ram:.1f}GB, 空闲: {free_ram:.1f}GB")
+    except ImportError:
+        print(f"[RAM信息] 空闲: {free_ram:.1f}GB (安装psutil可获取更多信息)")
+
 def set_global_seeds(i: int):
     torch.manual_seed(i)
     torch.cuda.manual_seed(i)
@@ -193,3 +374,41 @@ def build_critic_observation(actor_obs, opponent_obs=None):
         opponent_vec = np.zeros(NetParameters.PRIVILEGED_RAW_LEN, dtype=np.float32)
     
     return np.concatenate([actor_vec, opponent_vec])
+
+
+def get_ray_temp_dir() -> str:
+    """
+    获取Ray临时目录路径。
+    
+    在hp机器上（通过检查主机名或磁盘路径），使用空间充足的位置。
+    注意：路径不能包含中文字符，否则Ray会报UnicodeEncodeError
+    
+    前提条件（hp机器）：需要先执行以下命令创建绑定挂载：
+        sudo mkdir -p /mnt/data
+        sudo mount --bind "/media/hp/新加卷" /mnt/data
+    
+    Returns:
+        str: Ray临时目录路径，如果是默认位置则返回None
+    """
+    import socket
+    import os
+    
+    hostname = socket.gethostname().lower()
+    
+    # 检测是否在hp机器上（通过主机名或特定路径存在）
+    is_hp_machine = (
+        'hp' in hostname or 
+        os.path.exists('/media/hp') or
+        'h3cdesk' in hostname.lower()
+    )
+    
+    if is_hp_machine:
+        # hp机器上使用绑定挂载的ASCII路径
+        # /mnt/data 是 /media/hp/新加卷 的绑定挂载，有6.7T空间
+        ray_tmp = '/mnt/data/ray_tmp'
+        os.makedirs(ray_tmp, exist_ok=True)
+        print(f"[Ray] 检测到hp机器，临时目录设置为: {ray_tmp}")
+        return ray_tmp
+    
+    # 其他机器使用默认位置
+    return None

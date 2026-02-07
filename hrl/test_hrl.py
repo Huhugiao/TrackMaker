@@ -1,4 +1,4 @@
-
+ 
 import sys
 import os
 import numpy as np
@@ -8,13 +8,19 @@ import torch
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hrl.hrl_env import HRLEnv
+from ppo.util import get_device, print_device_info
 
 def test():
     model_path = "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_01-29-10-05/best_model.pth"
     print(f"Testing HRLEnv with model: {model_path}")
     
+    # 使用安全的GPU检测
+    device = get_device(prefer_gpu=True)
+    print_device_info()
+    print(f"Using device: {device}")
+    
     try:
-        env = HRLEnv(protect_model_path=model_path, attacker_strategy='random', device='cpu')
+        env = HRLEnv(protect_model_path=model_path, attacker_strategy='random', device=str(device))
         obs, info = env.reset()
         defender_obs, attacker_obs = obs
         print("Reset successful.")

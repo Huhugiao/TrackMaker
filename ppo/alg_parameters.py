@@ -32,12 +32,11 @@ class SetupParameters:
     EVAL_FIXED_SEED = 42           # 评估时的固定种子（当EVAL_USE_RANDOM_SEED=False时使用）
     
     # --- GPU设置 ---
-    NUM_GPU = 1              # 使用的GPU数量
-    USE_GPU_LOCAL = False    # 是否在本地（Runner）使用GPU
-    USE_GPU_GLOBAL = False   # 是否在全局（Driver/Learner）使用GPU
+    GPU_ID = 1               # 使用的GPU序号（0或1），所有训练都在这个GPU上运行
     
     # 预训练模型路径
     PRETRAINED_DEFENDER_PATH = None  # 预训练Defender模型路径
+    
     
     # 障碍物密度等级 (none, dense)
     OBSTACLE_DENSITY = ObstacleDensity.DENSE
@@ -45,7 +44,7 @@ class SetupParameters:
     # 技能模式: "chase", "protect1", "protect2"
     # protect1: 导航到target阶段 (静止对手, 到达即成功)
     # protect2: 保护target阶段 (导航对手, 任务胜负条件)
-    SKILL_MODE = "protect2"
+    SKILL_MODE = "protect1"
 
 
 class TrainingParameters:
@@ -53,7 +52,7 @@ class TrainingParameters:
     训练超参数
     """
     # --- 优化器设置 ---
-    lr = 3e-4                # 初始学习率
+    lr = 1e-3                # 初始学习率
     LR_FINAL = 1e-5          # 最终学习率
     LR_SCHEDULE = 'cosine'   # 学习率调度方式 ('cosine', 'linear', 'constant')
     
@@ -77,7 +76,7 @@ class TrainingParameters:
     EX_VALUE_COEF = 0.5      # Value Loss的系数
     ENTROPY_COEF = 0.01      # Entropy Bonus的系数
     MAX_GRAD_NORM = 0.5      # 梯度裁剪阈值
-    GAMMA = 0.99             # 折扣因子
+    GAMMA = 0.95            # 折扣因子
     LAM = 0.95               # GAE参数 lambda
     
     # --- 模仿学习 (IL) 设置 ---
@@ -147,7 +146,7 @@ class RecordingParameters:
     TIME = datetime.datetime.now().strftime("_%m-%d-%H-%M")
     
     RETRAIN = False           # 是否继续训练 (加载权重和进度)
-    FRESH_RETRAIN = True     # 仅加载模型权重，重置训练进度和学习率调度
+    FRESH_RETRAIN = False     # 仅加载模型权重，重置训练进度和学习率调度
     RESTORE_DIR = "./models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28/models/best_model.pth"          # 恢复模型的目录
     
     TENSORBOARD = True        # 是否使用TensorBoard

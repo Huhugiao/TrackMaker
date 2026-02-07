@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.model import Model
-from ppo.util import set_global_seeds, write_to_tensorboard, make_gif
+from ppo.util import set_global_seeds, write_to_tensorboard, make_gif, get_device, get_num_gpus, print_device_info, get_adjusted_n_envs, print_ram_info, get_ray_temp_dir, is_gpu_available, is_gpu_available
 from hrl.hrl_runner import HRLRunner
 
 # Override parameters for HRL
@@ -31,6 +31,9 @@ def cosine_anneal_il_weight(current_step: int) -> float:
 
 def main():
     set_global_seeds(SetupParameters.SEED)
+    
+    # 打印设备信息
+    print_device_info()
     
     timestamp = datetime.now().strftime('%m-%d-%H-%M')
     run_name = f"HRL_TopLevel_{timestamp}"
@@ -47,25 +50,40 @@ def main():
         os.makedirs(log_dir, exist_ok=True)
         summary_writer = SummaryWriter(log_dir)
     
+    # 使用安全的GPU检测
+    print_ram_info()
+    
+    # 根据RAM调整并行环境数量
+    n_envs = get_adjusted_n_envs(TrainingParameters.N_ENVS)
+    num_gpus = get_num_gpus()
+    device = get_device(prefer_gpu=True)
+    
     print("=" * 60)
     print(f"HRL Top Level Training - {run_name}")
-    print(f"Num Runners: {TrainingParameters.N_ENVS}")
+    print(f"Device: {device} (可用GPU数量: {num_gpus})")
+    print(f"Num Runners: {n_envs}")
     print(f"GIF Interval: {RecordingParameters.GIF_INTERVAL:,} steps")
     print("=" * 60)
     
-    ray.init(num_cpus=TrainingParameters.N_ENVS, num_gpus=SetupParameters.NUM_GPU)
+    # 使用检测到的GPU数量初始化Ray
+    ray_tmp = get_ray_temp_dir()
+    # 只分配1个GPU给Ray，所有Runner共享这个GPU
+    ray_num_gpus = 1 if is_gpu_available() else 0
+    if ray_tmp:
+        ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus, _temp_dir=ray_tmp)
+    else:
+        ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus)
     
-    device = torch.device('cuda' if torch.cuda.is_available() and SetupParameters.USE_GPU_GLOBAL else 'cpu')
     model = Model(device=device, global_model=True)
     
     # Initialize HRL Runners with random attacker strategies
-    runners = [HRLRunner.remote(i, env_configs={'attacker_strategy': 'random'}) for i in range(TrainingParameters.N_ENVS)]
+    runners = [HRLRunner.remote(i, env_configs={'attacker_strategy': 'random'}) for i in range(n_envs)]
     
     global_step = 0
     best_reward = -float('inf')
     
     total_steps = int(TrainingParameters.N_MAX_STEPS)
-    total_updates = int(TrainingParameters.N_MAX_STEPS // (TrainingParameters.N_ENVS * TrainingParameters.N_STEPS))
+    total_updates = int(TrainingParameters.N_MAX_STEPS // (n_envs * TrainingParameters.N_STEPS))
     
     print(f"\nStarting training for {total_updates} updates...")
     
@@ -105,7 +123,7 @@ def main():
             values=values_all
         )
         
-        steps_this_update = TrainingParameters.N_ENVS * TrainingParameters.N_STEPS
+        steps_this_update = n_envs * TrainingParameters.N_STEPS
         global_step += steps_this_update
         
         # Logging
