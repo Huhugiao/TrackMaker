@@ -41,7 +41,7 @@ sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.model import Model
 from ppo.runner import Runner
-from ppo.util import set_global_seeds, write_to_tensorboard, make_gif, get_device, get_num_gpus, print_device_info, get_adjusted_n_envs, print_ram_info, get_ray_temp_dir, is_gpu_available, is_gpu_available
+from ppo.util import set_global_seeds, write_to_tensorboard, make_gif, make_trajectory_plot, get_device, get_num_gpus, print_device_info, get_adjusted_n_envs, print_ram_info, get_ray_temp_dir, is_gpu_available
 
 from map_config import EnvParameters
 
@@ -134,15 +134,17 @@ def main():
         print(f"FRESH_RETRAIN: True (加载权重，重置进度)")
     print("=" * 60)
     
-    # 使用指定的单个GPU初始化Ray（由SetupParameters.GPU_ID控制）
-    # 注意：CUDA_VISIBLE_DEVICES已在文件开头设置，Ray将只能看到指定的GPU
+    # 使用所有可用CPU初始化Ray，Runner不使用GPU（推理在CPU上完成）
+    # GPU仅用于主进程的模型训练
     ray_tmp = get_ray_temp_dir()
-    # 只分配1个GPU给Ray，所有Runner共享这个GPU
-    ray_num_gpus = 1 if is_gpu_available() else 0
+    import os as _os
+    ray_num_cpus = _os.cpu_count() or n_envs  # 使用全部CPU
+    ray_num_gpus = 0  # Runner不需要GPU，训练由主进程在GPU上完成
+    print(f"[Ray] Init with {ray_num_cpus} CPUs (system total), {n_envs} runners")
     if ray_tmp:
-        ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus, _temp_dir=ray_tmp)
+        ray.init(num_cpus=ray_num_cpus, num_gpus=ray_num_gpus, _temp_dir=ray_tmp)
     else:
-        ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus)
+        ray.init(num_cpus=ray_num_cpus, num_gpus=ray_num_gpus)
     
     model = Model(device=device, global_model=True)
     
@@ -317,6 +319,14 @@ def main():
             if eval_result.get('frames') and len(eval_result['frames']) > 0:
                 gif_path = osp.join(gif_dir, f"eval_{global_step}.gif")
                 make_gif(eval_result['frames'], gif_path)
+            
+            # Generate academic trajectory plot (always, even without GIF)
+            traj_data = eval_result.get('trajectory_data')
+            if traj_data:
+                traj_png = osp.join(gif_dir, f"traj_{global_step}.png")
+                traj_pdf = osp.join(gif_dir, f"traj_{global_step}.pdf")
+                make_trajectory_plot(traj_data, traj_png, dpi=150)
+                make_trajectory_plot(traj_data, traj_pdf, dpi=300)
             
             if eval_reward > best_reward:
                 best_reward = eval_reward

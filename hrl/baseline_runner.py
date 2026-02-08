@@ -185,7 +185,7 @@ class BaselineRunner:
             
             while not self.done:
                 if record_gif and ep_idx == 0:
-                    frame = self.env.env.render(mode='rgb_array')
+                    frame = self.env.env.render(mode='rgb_array', style='matplotlib')
                     if frame is not None:
                         ep_frames.append(frame)
                         

@@ -318,9 +318,9 @@ def run_evaluation(
                 try:
                     # 尝试从底层env获取render
                     if hasattr(env, 'env') and hasattr(env.env, 'render'):
-                        f = env.env.render(mode='rgb_array')
+                        f = env.env.render(mode='rgb_array', style='matplotlib')
                     elif hasattr(env, 'render'):
-                        f = env.render(mode='rgb_array')
+                        f = env.render(mode='rgb_array', style='matplotlib')
                     else:
                         f = None
                     if f is not None: 

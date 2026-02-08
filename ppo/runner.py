@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple, Any, Optional
 
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
 from ppo.nets import DefenderNetMLP
-from ppo.util import build_critic_observation, update_perf, get_device, get_num_gpus, get_adjusted_n_envs
+from ppo.util import build_critic_observation, update_perf, get_adjusted_n_envs
 
 import map_config
 from map_config import EnvParameters
@@ -26,29 +26,17 @@ ATTACKER_POLICY_REGISTRY = {
 }
 
 
-def _compute_runner_gpu_fraction():
-    """计算每个Runner应该分配的GPU比例
-    
-    所有Runner共享同一个GPU（由SetupParameters.GPU_ID指定）
-    每个Runner分配 1/n_envs 的GPU资源份额
-    """
-    from ppo.util import is_gpu_available
-    n_envs = get_adjusted_n_envs(TrainingParameters.N_ENVS)
-    if is_gpu_available() and n_envs > 0:
-        # 所有Runner共享1个GPU，每个分配 1/n_envs 份额
-        return 1.0 / n_envs
-    return 0
-
-
-@ray.remote(num_cpus=1, num_gpus=_compute_runner_gpu_fraction())
+@ray.remote(num_cpus=1, num_gpus=0)
 class Runner:
+    """Runner uses CPU for inference — small MLP is faster on CPU than
+    serializing on a contended shared GPU.  GPU is reserved for training only."""
     def __init__(self, meta_agent_id: int, env_configs: Dict = None):
         self.meta_agent_id = meta_agent_id
         self.env_configs = env_configs or {}
         
         import torch
-        # 使用安全的设备检测
-        self.device = get_device(prefer_gpu=True)
+        # Runner 强制使用 CPU 推理，避免 GPU 竞争
+        self.device = torch.device('cpu')
         
         self.local_network = DefenderNetMLP().to(self.device)
         self.local_network.eval()
@@ -347,6 +335,7 @@ class Runner:
         
         perf = {'per_r': [], 'per_episode_len': [], 'win': []}
         frames = [] if record_gif else None
+        trajectory_data = None  # trajectory data for the first episode (for static plot)
         
         for ep_idx in range(num_episodes):
             self._reset(for_eval=True, episode_idx=ep_idx)
@@ -354,9 +343,19 @@ class Runner:
             ep_len = 0
             ep_frames = []
             
+            # Record initial positions for first episode's trajectory plot
+            record_traj = (ep_idx == 0)
+            if record_traj:
+                priv = self.env.get_privileged_state()
+                target_pos = (priv['target']['center_x'], priv['target']['center_y'])
+                ep_def_traj = [(priv['defender']['center_x'], priv['defender']['center_y'])]
+                ep_atk_traj = [(priv['attacker']['center_x'], priv['attacker']['center_y'])]
+                ep_def_theta = [priv['defender'].get('theta', 0.0)]
+                ep_atk_theta = [priv['attacker'].get('theta', 0.0)]
+            
             while not self.done:
                 if record_gif and ep_idx == 0:
-                    frame = self.env.render(mode='rgb_array')
+                    frame = self.env.render(mode='rgb_array', style='matplotlib')
                     if frame is not None:
                         ep_frames.append(frame)
                 
@@ -366,7 +365,6 @@ class Runner:
                 
                 with torch.no_grad():
                     if greedy:
-                        # 使用forward获取mean，然后tanh
                         mean, _, _ = self.local_network(obs_t, critic_obs_t)
                         action = torch.tanh(mean).cpu().numpy().flatten()
                     else:
@@ -382,6 +380,14 @@ class Runner:
                 ep_reward += reward
                 ep_len += 1
                 
+                # Record trajectory
+                if record_traj:
+                    priv = self.env.get_privileged_state()
+                    ep_def_traj.append((priv['defender']['center_x'], priv['defender']['center_y']))
+                    ep_atk_traj.append((priv['attacker']['center_x'], priv['attacker']['center_y']))
+                    ep_def_theta.append(priv['defender'].get('theta', 0.0))
+                    ep_atk_theta.append(priv['attacker'].get('theta', 0.0))
+                
                 if ep_len >= EnvParameters.EPISODE_LEN:
                     break
             
@@ -395,8 +401,29 @@ class Runner:
             
             if record_gif and ep_idx == 0 and ep_frames:
                 frames = ep_frames
+            
+            # Save trajectory data from first episode
+            if record_traj:
+                import map_config as _mc
+                trajectory_data = {
+                    'defender_traj': ep_def_traj,
+                    'attacker_traj': ep_atk_traj,
+                    'defender_theta': ep_def_theta,
+                    'attacker_theta': ep_atk_theta,
+                    'target_pos': target_pos,
+                    'obstacles': list(getattr(_mc, 'obstacles', [])),
+                    'width': getattr(_mc, 'width', 640),
+                    'height': getattr(_mc, 'height', 640),
+                    'win': one_ep['win'],
+                    'skill_mode': SetupParameters.SKILL_MODE,
+                    'episode_len': ep_len,
+                    'episode_reward': ep_reward,
+                    'capture_radius': getattr(_mc, 'capture_radius', 20),
+                    'capture_sector_angle_deg': getattr(_mc, 'capture_sector_angle_deg', 30),
+                }
         
         return {
             'perf': perf,
-            'frames': frames
+            'frames': frames,
+            'trajectory_data': trajectory_data,
         }

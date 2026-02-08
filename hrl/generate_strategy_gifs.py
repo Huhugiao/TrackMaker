@@ -51,7 +51,7 @@ def generate_strategy_gif(
     
     for step in range(max_steps):
         # 渲染帧
-        frame = env.render(mode='rgb_array')
+        frame = env.render(mode='rgb_array', style='matplotlib')
         if frame is not None:
             frames.append(frame)
         

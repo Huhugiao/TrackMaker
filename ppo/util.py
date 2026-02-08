@@ -158,7 +158,7 @@ def get_free_ram_gb() -> float:
         return 0.0
 
 
-def get_adjusted_n_envs(base_n_envs: int, ram_threshold_gb: float = 20.0, multiplier: int = 6) -> int:
+def get_adjusted_n_envs(base_n_envs: int, ram_threshold_gb: float = 20.0, multiplier: int = 9) -> int:
     """
     根据空闲RAM大小动态调整并行环境数量。
     
@@ -271,6 +271,211 @@ def write_to_tensorboard(global_summary, step: int,
                 global_summary.add_scalar(f'Loss/{name}', float(val), step)
     
     global_summary.flush()
+
+
+def make_trajectory_plot(trajectory_data, file_name, dpi=150):
+    """
+    Generate academic-style trajectory plot (PNG/PDF) commonly seen in
+    pursuit-evasion / target-attacker-defender papers.
+
+    Args:
+        trajectory_data: dict with keys:
+            'defender_traj': list of (x,y) tuples
+            'attacker_traj': list of (x,y) tuples
+            'target_pos': (x, y) — static target position
+            'obstacles': list of obstacle dicts from map_config
+            'width', 'height': map dimensions
+            'win': bool — whether defender won
+            'skill_mode': str — 'protect1', 'protect2', 'chase', etc.
+            'episode_len': int (optional)
+            'episode_reward': float (optional)
+        file_name: output path (.png or .pdf)
+        dpi: resolution (default 150 for screen, use 300 for paper)
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from matplotlib.collections import PatchCollection
+        from matplotlib.patches import FancyArrowPatch
+        import numpy as np
+    except ImportError:
+        print("[WARN] matplotlib not installed, skipping trajectory plot")
+        return
+
+    d_traj = trajectory_data.get('defender_traj', [])
+    a_traj = trajectory_data.get('attacker_traj', [])
+    target_pos = trajectory_data.get('target_pos', None)
+    obstacles = trajectory_data.get('obstacles', None)
+    if not obstacles:
+        obstacles = getattr(map_config, 'obstacles', [])
+    w = trajectory_data.get('width', 640)
+    h = trajectory_data.get('height', 640)
+    win = trajectory_data.get('win', False)
+    skill_mode = trajectory_data.get('skill_mode', '')
+    ep_len = trajectory_data.get('episode_len', len(d_traj))
+    ep_reward = trajectory_data.get('episode_reward', None)
+
+    # ---------- Style ----------
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.serif': ['Times New Roman', 'DejaVu Serif'],
+        'font.size': 10,
+        'axes.linewidth': 0.8,
+        'axes.grid': True,
+        'grid.alpha': 0.25,
+        'grid.linewidth': 0.5,
+    })
+
+    fig, ax = plt.subplots(1, 1, figsize=(5.5, 5.5))
+    ax.set_xlim(0, w)
+    ax.set_ylim(0, h)
+    ax.set_aspect('equal')
+    ax.invert_yaxis()  # match screen coordinates (y down)
+    ax.set_xlabel('$x$ (pixels)', fontsize=11)
+    ax.set_ylabel('$y$ (pixels)', fontsize=11)
+
+    # --- Obstacles ---
+    obs_patches = []
+    for obs in obstacles:
+        if obs['type'] == 'rect':
+            obs_patches.append(
+                mpatches.Rectangle((obs['x'], obs['y']), obs['w'], obs['h'])
+            )
+        elif obs['type'] == 'circle':
+            obs_patches.append(
+                mpatches.Circle((obs['cx'], obs['cy']), obs['r'])
+            )
+        elif obs['type'] == 'segment':
+            thick = float(obs.get('thick', 8.0))
+            x1, y1, x2, y2 = obs['x1'], obs['y1'], obs['x2'], obs['y2']
+            dx, dy = x2 - x1, y2 - y1
+            length = max(1e-6, (dx**2 + dy**2)**0.5)
+            nx, ny = -dy / length * thick / 2, dx / length * thick / 2
+            verts = [(x1+nx, y1+ny), (x2+nx, y2+ny),
+                     (x2-nx, y2-ny), (x1-nx, y1-ny)]
+            obs_patches.append(mpatches.Polygon(verts))
+    if obs_patches:
+        pc = PatchCollection(obs_patches, facecolor='#d0d0d4',
+                             edgecolor='#505058', linewidth=0.6, zorder=2)
+        ax.add_collection(pc)
+
+    # --- Color palette ---
+    c_def = '#3264DC'   # defender blue
+    c_atk = '#DC5038'   # attacker red
+    c_tgt = '#32B450'   # target green
+
+    # --- Trajectories ---
+    def _plot_trajectory(traj, color, label, marker_char='o'):
+        if len(traj) < 2:
+            return
+        xs = [p[0] for p in traj]
+        ys = [p[1] for p in traj]
+        n = len(xs)
+
+        # Main line
+        ax.plot(xs, ys, color=color, linewidth=1.4, alpha=0.75, zorder=4, label=label)
+
+
+
+        # Direction arrows along trajectory (every ~20%)
+        arrow_interval = max(1, n // 5)
+        for i in range(arrow_interval, n - 1, arrow_interval):
+            dx = xs[min(i+1, n-1)] - xs[i]
+            dy = ys[min(i+1, n-1)] - ys[i]
+            if abs(dx) + abs(dy) > 0.1:
+                ax.annotate('', xy=(xs[i] + dx*0.5, ys[i] + dy*0.5),
+                           xytext=(xs[i], ys[i]),
+                           arrowprops=dict(arrowstyle='->', color=color,
+                                          lw=1.2, mutation_scale=8),
+                           zorder=5)
+
+        # Start marker (square)
+        ax.plot(xs[0], ys[0], 's', color=color, markersize=7,
+                markeredgecolor='white', markeredgewidth=1.0, zorder=6)
+        # End marker (larger circle)
+        ax.plot(xs[-1], ys[-1], 'o', color=color, markersize=8,
+                markeredgecolor='white', markeredgewidth=1.0, zorder=6)
+
+        # Time labels at start and end
+        ax.annotate(f'$t_0$', (xs[0], ys[0]), textcoords='offset points',
+                   xytext=(6, -6), fontsize=8, color=color, zorder=7)
+        ax.annotate(f'$t_{{{n}}}$', (xs[-1], ys[-1]), textcoords='offset points',
+                   xytext=(6, -6), fontsize=8, color=color, zorder=7)
+
+    _plot_trajectory(d_traj, c_def, 'Defender')
+    if a_traj:
+        _plot_trajectory(a_traj, c_atk, 'Attacker')
+
+    # --- Target ---
+    if target_pos:
+        tx, ty = target_pos
+        target_r = getattr(map_config, 'target_radius', 16)
+        circle_outer = plt.Circle((tx, ty), target_r, fill=False,
+                                  edgecolor=c_tgt, linewidth=1.8, linestyle='--', zorder=3)
+        circle_inner = plt.Circle((tx, ty), target_r * 0.3, fill=True,
+                                  facecolor=c_tgt, edgecolor='none', zorder=3)
+        ax.add_patch(circle_outer)
+        ax.add_patch(circle_inner)
+        # Cross-hair
+        ch = target_r * 0.5
+        ax.plot([tx-ch, tx+ch], [ty, ty], color=c_tgt, linewidth=0.8, alpha=0.6, zorder=3)
+        ax.plot([tx, tx], [ty-ch, ty+ch], color=c_tgt, linewidth=0.8, alpha=0.6, zorder=3)
+        ax.annotate('Target', (tx, ty), textcoords='offset points',
+                   xytext=(8, 8), fontsize=8, color=c_tgt,
+                   fontstyle='italic', zorder=7)
+
+    # --- Capture sector at defender final position ---
+    capture_r = trajectory_data.get('capture_radius', getattr(map_config, 'capture_radius', 20))
+    capture_angle = trajectory_data.get('capture_sector_angle_deg',
+                                         getattr(map_config, 'capture_sector_angle_deg', 30))
+    d_theta_list = trajectory_data.get('defender_theta', [])
+    if d_traj and d_theta_list:
+        last_dx, last_dy = d_traj[-1]
+        last_theta = d_theta_list[-1]
+        c_cap = '#E86040'
+        # Wedge: counterclockwise in data coords = clockwise on screen (inverted y)
+        cap_wedge = mpatches.Wedge(
+            (last_dx, last_dy), capture_r,
+            last_theta - capture_angle / 2.0,
+            last_theta + capture_angle / 2.0,
+            facecolor=c_cap, alpha=0.18,
+            edgecolor=c_cap, linewidth=1.2, linestyle='--', zorder=2)
+        ax.add_patch(cap_wedge)
+
+    # --- Title ---
+    mode_labels = {
+        'protect1': 'Protect Phase I (Navigation)',
+        'protect2': 'Protect Phase II (Defense)',
+        'chase': 'Chase (Pursuit)',
+        'tad': 'TAD (Full Task)',
+    }
+    title = mode_labels.get(skill_mode, skill_mode.upper())
+    outcome = 'Success' if win else 'Failure'
+    title_str = f'{title} — {outcome}'
+    if ep_reward is not None:
+        title_str += f'  ($R={ep_reward:.1f}$, $T={ep_len}$)'
+    ax.set_title(title_str, fontsize=12, fontweight='bold', pad=10)
+
+    # --- Legend ---
+    ax.legend(loc='upper right', fontsize=9, framealpha=0.85,
+              edgecolor='#cccccc', fancybox=False)
+
+    # --- Tick formatting ---
+    ax.tick_params(direction='in', length=3, width=0.6, labelsize=9)
+
+    plt.tight_layout(pad=1.0)
+
+    os.makedirs(osp.dirname(file_name) if osp.dirname(file_name) else '.', exist_ok=True)
+    fig.savefig(file_name, dpi=dpi, bbox_inches='tight',
+                facecolor='white', edgecolor='none')
+    plt.close(fig)
+
+    file_size = os.path.getsize(file_name)
+    size_str = f"{file_size / 1024:.1f}KB" if file_size < 1024*1024 else f"{file_size / (1024*1024):.2f}MB"
+    print(f"Trajectory plot saved: {file_name} ({size_str})")
+
 
 
 def make_gif(images, file_name, fps=20, quality='high'):

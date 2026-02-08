@@ -690,11 +690,29 @@ class TADEnv(gym.Env):
         self._fov_cache_valid = True
         return pts
 
-    def render(self, mode='rgb_array', collision_info=None):
+    def render(self, mode='rgb_array', collision_info=None, style=None):
+        """Render the current frame.
+        
+        Args:
+            mode: render mode ('rgb_array')
+            collision_info: optional collision info dict
+            style: 'pygame' (fast, default) or 'matplotlib' (academic PNG style)
+        """
+        fov_points = self._get_fov_points()
+        
+        if style == 'matplotlib':
+            # Academic matplotlib style — matches trajectory PNG exactly
+            return env_lib.get_canvas_tad_matplotlib(
+                self.target, self.defender, self.attacker,
+                self.defender_trajectory, self.attacker_trajectory,
+                fov_points=fov_points,
+                collision_info=collision_info
+            )
+        
+        # Default: fast Pygame renderer
         if pygame is not None and self._render_surface is None:
             ss = getattr(map_config, 'ssaa', 1)
             self._render_surface = pygame.Surface((self.width * ss, self.height * ss), flags=pygame.SRCALPHA)
-        fov_points = self._get_fov_points()
         canvas = env_lib.get_canvas_tad(
             self.target, self.defender, self.attacker,
             self.defender_trajectory, self.attacker_trajectory,
@@ -706,6 +724,7 @@ class TADEnv(gym.Env):
 
     def close(self):
         self._render_surface = None
+        env_lib.reset_mpl_renderer()
 
     def _is_defender_capturing_attacker(self):
         tx = self.defender['x'] + self.pixel_size * 0.5
