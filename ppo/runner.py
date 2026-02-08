@@ -8,29 +8,98 @@ import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
 
 from ppo.alg_parameters import SetupParameters, TrainingParameters, NetParameters, RecordingParameters
-from ppo.nets import DefenderNetMLP
+from ppo.nets import DefenderNetMLP, create_network
 from ppo.util import build_critic_observation, update_perf, get_adjusted_n_envs
 
 import map_config
 from map_config import EnvParameters
 from env import TADEnv
-from rule_policies import AttackerAPFPolicy, AttackerGlobalPolicy, AttackerStaticPolicy
+from rule_policies import AttackerGlobalPolicy, AttackerStaticPolicy
 from rule_policies.attacker_global import ALL_STRATEGIES
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
 ATTACKER_POLICY_REGISTRY = {
-    'attacker_apf': AttackerAPFPolicy,
     'attacker_global': AttackerGlobalPolicy,
     'attacker_static': AttackerStaticPolicy
 }
+
+
+class RewardNormalizer:
+    """
+    Running Return Normalization (OpenAI baselines style)
+    
+    维护一个折扣回报 G_t 的 running variance，用 1/sqrt(var + eps) 缩放 reward。
+    只做 scale，不做 shift（不减均值），避免改变最优策略。
+    
+    原理：
+    - 在训练前期，reward 的方差可能很大（如 protect1 的 -100 累积惩罚）
+    - 通过除以 sqrt(var) 将 reward 缩放到稳定范围
+    - running mean/var 使用 Welford 在线算法更新
+    
+    warmup_steps: 前 N 步不标准化，用于收集足够的统计数据
+    clip_range: 标准化后的 reward 裁剪范围，防止极端值
+    """
+    def __init__(self, gamma=0.99, epsilon=1e-8, warmup_steps=100, clip_range=10.0):
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.warmup_steps = warmup_steps
+        self.clip_range = clip_range
+        # Running statistics (Welford online algorithm)
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = 0
+        # 折扣回报的 running estimate
+        self.ret = 0.0  # 当前 episode 的折扣回报 G_t
+    
+    def update(self, reward, done):
+        """
+        更新 running statistics 并返回标准化后的 reward
+        
+        Args:
+            reward: 原始 reward
+            done: episode 是否结束
+        Returns:
+            normalized reward (reward / sqrt(var + eps)), clipped to [-clip_range, clip_range]
+        """
+        # 更新折扣回报 (当 done 时重置)
+        self.ret = self.ret * self.gamma * (1.0 - float(done)) + reward
+        
+        # Welford online update for mean and variance
+        self.count += 1
+        delta = self.ret - self.mean
+        self.mean += delta / self.count
+        delta2 = self.ret - self.mean
+        # Numerically stable variance update
+        if self.count > 1:
+            self.var += (delta * delta2 - self.var) / self.count
+        else:
+            self.var = 0.0
+        # 确保 var >= 0
+        self.var = max(self.var, 0.0)
+        
+        # Warmup: 统计量不稳定时直接返回原始 reward
+        if self.count < self.warmup_steps:
+            return reward
+        
+        # Normalize: 只 scale，不 shift
+        std = max(self.var ** 0.5, self.epsilon)
+        normalized = reward / std
+        
+        # Clip to prevent extreme values
+        normalized = max(-self.clip_range, min(self.clip_range, normalized))
+        return normalized
+    
+    def reset_ret(self):
+        """Reset discounted return tracker (called on episode reset)"""
+        self.ret = 0.0
 
 
 @ray.remote(num_cpus=1, num_gpus=0)
 class Runner:
     """Runner uses CPU for inference — small MLP is faster on CPU than
     serializing on a contended shared GPU.  GPU is reserved for training only."""
-    def __init__(self, meta_agent_id: int, env_configs: Dict = None):
+    def __init__(self, meta_agent_id: int, env_configs: Dict = None, network_type: str = 'nmn'):
         self.meta_agent_id = meta_agent_id
         self.env_configs = env_configs or {}
         
@@ -38,7 +107,7 @@ class Runner:
         # Runner 强制使用 CPU 推理，避免 GPU 竞争
         self.device = torch.device('cpu')
         
-        self.local_network = DefenderNetMLP().to(self.device)
+        self.local_network = create_network(network_type).to(self.device)
         self.local_network.eval()
         
         self._init_env()
@@ -47,6 +116,11 @@ class Runner:
         self.current_opponent_key = None
         
         self._reset()
+        
+        # 奖励标准化器
+        self.reward_normalizer = RewardNormalizer(
+            gamma=TrainingParameters.GAMMA
+        ) if TrainingParameters.REWARD_NORMALIZATION else None
     
     def _init_env(self):
         self.env = TADEnv(reward_mode=SetupParameters.SKILL_MODE)
@@ -139,6 +213,9 @@ class Runner:
         self.done = False
         self.episode_reward = 0.0
         self.episode_len = 0
+        # 重置标准化器的折扣回报追踪
+        if hasattr(self, 'reward_normalizer') and self.reward_normalizer is not None:
+            self.reward_normalizer.reset_ret()
     
     def set_weights(self, weights):
         import torch
@@ -201,7 +278,12 @@ class Runner:
             self.episode_reward += reward
             self.episode_len += 1
             
-            mb_rewards.append(reward)
+            # 奖励标准化: reward / sqrt(running_var(G_t))
+            if self.reward_normalizer is not None:
+                norm_reward = self.reward_normalizer.update(reward, done)
+            else:
+                norm_reward = reward
+            mb_rewards.append(norm_reward)
             mb_dones.append(done)
             
             if done:

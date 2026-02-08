@@ -4,6 +4,8 @@
 *.nbc
 *.log
 *.gif
+*.png
 .vscode/
 plots/
 output/
+.trae/

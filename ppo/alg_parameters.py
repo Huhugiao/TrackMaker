@@ -32,11 +32,7 @@ class SetupParameters:
     EVAL_FIXED_SEED = 42           # 评估时的固定种子（当EVAL_USE_RANDOM_SEED=False时使用）
     
     # --- GPU设置 ---
-    GPU_ID = 1               # 使用的GPU序号（0或1），所有训练都在这个GPU上运行
-    
-    # 预训练模型路径
-    PRETRAINED_DEFENDER_PATH = None  # 预训练Defender模型路径
-    
+    GPU_ID = 0               # 使用的GPU序号（0或1），所有训练都在这个GPU上运行
     
     # 障碍物密度等级 (none, dense)
     OBSTACLE_DENSITY = ObstacleDensity.DENSE
@@ -44,7 +40,7 @@ class SetupParameters:
     # 技能模式: "chase", "protect1", "protect2"
     # protect1: 导航到target阶段 (静止对手, 到达即成功)
     # protect2: 保护target阶段 (导航对手, 任务胜负条件)
-    SKILL_MODE = "protect1"
+    SKILL_MODE = "protect2"
 
 
 class TrainingParameters:
@@ -53,13 +49,13 @@ class TrainingParameters:
     """
     # --- 优化器设置 ---
     lr = 1e-3                # 初始学习率
-    LR_FINAL = 1e-5          # 最终学习率
+    LR_FINAL = 3e-4          # 最终学习率
     LR_SCHEDULE = 'cosine'   # 学习率调度方式 ('cosine', 'linear', 'constant')
     
     # --- 训练流程设置 ---
     N_ENVS = 4               # 并行环境数量
     N_STEPS = 2048           # 每个环境采样的步数 (PPO Rollout Length)
-    N_MAX_STEPS = 2e7        # 最大训练总步数
+    N_MAX_STEPS = 0.8e7        # 最大训练总步数
     LOG_EPOCH_STEPS = int(1e4) # 每隔多少步记录一次日志
     
     MINIBATCH_SIZE = 64      # PPO更新的Mini-batch大小
@@ -74,9 +70,11 @@ class TrainingParameters:
     CLIP_RANGE = 0.2         # Policy Loss的Clip范围 (PPO Clip)
     RATIO_CLAMP_MAX = 4.0    # Importance Sampling Ratio的最大值
     EX_VALUE_COEF = 0.5      # Value Loss的系数
-    ENTROPY_COEF = 0.01      # Entropy Bonus的系数
+    ENTROPY_COEF = 0.02      # Entropy Bonus的系数
     MAX_GRAD_NORM = 0.5      # 梯度裁剪阈值
     GAMMA = 0.95            # 折扣因子
+    REWARD_NORMALIZATION = True  # 奖励标准化（Running Return Normalization）
+    REWARD_NORMALIZATION = True  # 奖励标准化（Running Return Normalization）
     LAM = 0.95               # GAE参数 lambda
     
     # --- 模仿学习 (IL) 设置 ---
@@ -123,9 +121,15 @@ class NetParameters:
     
     ACTION_DIM = 2           # 动作维度 (Angle, Speed)
     
-    # MLP 参数
-    HIDDEN_DIM = 256         # 隐藏层维度
-    NUM_HIDDEN_LAYERS = 3    # 隐藏层层数
+    # MLP 参数 (用于HRL顶层的CTDE网络)
+    HIDDEN_DIM = 64         # 隐藏层维度
+    NUM_HIDDEN_LAYERS = 2    # 隐藏层层数
+    
+    # NMN (Neural Modular Network) 参数 (用于底层技能训练)
+    NMN_BRANCH_DIM = 32      # 并行分支输出维度 (跟踪分支/避障分支各32)
+    NMN_MERGED_DIM = 64      # 合并层维度 (2 * BRANCH_DIM)
+    NMN_CRITIC_HIDDEN = 64   # Critic MLP隐藏层维度
+    NMN_CRITIC_LAYERS = 2    # Critic MLP隐藏层数
     
     # 上下文窗口长度 (用于数据处理)
     CONTEXT_WINDOW = TrainingParameters.TBPTT_STEPS
@@ -163,6 +167,7 @@ class RecordingParameters:
     SAVE_INTERVAL = 300000    # 保存模型间隔 (步数)
     BEST_INTERVAL = 0         # (未使用)
     GIF_INTERVAL = 1000000     # 保存GIF间隔 (步数)
+    TRAJ_INTERVAL = 200000    # 保存轨迹图间隔 (步数)
     EVAL_EPISODES = 48        # 评估时的对局数
     
     # Loss 名称列表 (用于日志记录)

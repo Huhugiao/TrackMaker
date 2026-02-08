@@ -18,7 +18,7 @@ import importlib
 import numpy as np
 import torch
 from ppo.alg_parameters import NetParameters, TrainingParameters
-from ppo.nets import DefenderNetMLP
+from ppo.nets import DefenderNetMLP, DefenderNetNMN, create_network
 
 
 class Model(object):
@@ -52,9 +52,10 @@ class Model(object):
         speed = float(np.clip((action_normalized[1] + 1.0) * 0.5, 0.0, 1.0))
         return angle, speed
     
-    def __init__(self, device, global_model=False):
+    def __init__(self, device, global_model=False, network_type='nmn'):
         self.device = device
-        self.network = DefenderNetMLP().to(device)
+        self.network_type = network_type
+        self.network = create_network(network_type).to(device)
         
         if global_model:
             self.net_optimizer = torch.optim.Adam(
@@ -541,5 +542,8 @@ class Model(object):
         torch.save(checkpoint, path)
 
     def load(self, path):
-        checkpoint = torch.load(path, map_location=self.device)
-        self.network.load_state_dict(checkpoint)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        if isinstance(checkpoint, dict) and 'model' in checkpoint:
+            self.network.load_state_dict(checkpoint['model'])
+        else:
+            self.network.load_state_dict(checkpoint)

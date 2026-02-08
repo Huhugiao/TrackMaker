@@ -6,8 +6,8 @@ class EnvParameters:
     EPISODE_LEN = 449
     NUM_TARGET_POLICIES = 4
 
-    FOV_ANGLE = 90
-    FOV_RANGE = 700
+    FOV_ANGLE = 360  # 360°全向视野
+    FOV_RANGE = 300  # 视野距离300
     RADAR_RAYS = 64
     MAX_UNOBSERVED_STEPS = 80
 

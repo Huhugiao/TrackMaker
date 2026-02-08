@@ -80,7 +80,7 @@ def main():
     else:
         ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus)
     
-    model = Model(device=device, global_model=True)
+    model = Model(device=device, global_model=True, network_type='mlp')  # Baseline使用CTDE MLP
     
     # Initialize Baseline Runners with random attacker strategies
     runners = [BaselineRunner.remote(i, env_configs={'attacker_strategy': 'random'}) for i in range(n_envs)]

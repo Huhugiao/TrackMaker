@@ -25,8 +25,6 @@ from ppo.alg_parameters import SetupParameters
 
 # Import Rule Policies
 from rule_policies import (
-    DefenderAPFPolicy,
-    AttackerAPFPolicy,
     AttackerGlobalPolicy,
     DefenderGlobalPolicy
 )
@@ -39,17 +37,56 @@ from env import TADEnv, TrackingEnv  # Fallback/Standard
 
 # --- Default Paths Configuration ---
 DEFAULT_MODEL_PATHS = {
-    # HRL High-Level Manager
+    # HRL High-Level Manager (MLP)
     'hrl': './models/hrl_01-30-17-06/best_model.pth',
     
-    # Baseline End-to-End PPO
+    # Baseline End-to-End PPO (MLP)
     'baseline': './models/baseline_01-30-22-19/best_model.pth',
     
-    # Pre-trained Skills
+    # Pre-trained Skills (MLP legacy)
     'protect': './models/defender_protect_dense_01-28-11-28/best_model.pth',
     'protect2': './models/defender_protect2_dense_01-29-10-05/best_model.pth',
-    'chase': './models/defender_chase_dense_02-02-11-00/best_model.pth' 
+    'chase': './models/defender_chase_dense_02-02-11-00/best_model.pth',
+    
+    # NMN (Neural Modular Network) 新版技能模型
+    'protect1_nmn': './models/defender_protect1_dense_02-08-16-12/best_model.pth',
 }
+
+def _detect_network_type(checkpoint_path: str) -> str:
+    """从checkpoint权重自动检测网络类型 (NMN or MLP).
+    
+    NMN特有层: tracking_branch, obstacle_branch, merged_layer
+    MLP特有层: actor_backbone, critic_backbone (CTDE维度)
+    """
+    try:
+        # numpy版本兼容: 旧numpy(< 2.0)没有_core子包
+        import numpy as _np
+        if not hasattr(_np, '_core'):
+            import sys as _sys
+            _sys.modules['numpy._core'] = _np.core
+            _sys.modules['numpy._core.multiarray'] = _np.core.multiarray
+        
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        if 'model' in checkpoint:
+            state_dict = checkpoint['model']
+        else:
+            state_dict = checkpoint
+        
+        keys = set(state_dict.keys())
+        has_tracking = any('tracking_branch' in k for k in keys)
+        has_actor_backbone = any('actor_backbone' in k for k in keys)
+        
+        if has_tracking:
+            return 'nmn'
+        elif has_actor_backbone:
+            return 'mlp'
+        else:
+            # 默认NMN
+            return 'nmn'
+    except Exception as e:
+        print(f"[警告] 无法检测网络类型: {e}, 使用默认nmn")
+        return 'nmn'
+
 
 class Defenderevaluator:
     """Defender Strategy Evaluator Wrapper"""
@@ -58,14 +95,15 @@ class Defenderevaluator:
         self,
         strategy: str,
         checkpoint_path: Optional[str] = None,
-        device: str = 'cpu'
+        device: str = 'cpu',
+        network_type: Optional[str] = None
     ):
         self.strategy = strategy
         # 使用安全的GPU检测
         self.device = get_device(prefer_gpu=(device == 'cuda'))
         
         # RL策略列表
-        rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase']
+        rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
         
         # 自动解析checkpoint
         if strategy in rl_strategies and checkpoint_path is None:
@@ -79,8 +117,12 @@ class Defenderevaluator:
         
         if strategy in rl_strategies:
             if checkpoint_path and os.path.exists(checkpoint_path):
-                # Load PPO Model
-                self.model = Model(self.device, global_model=False)
+                # 自动检测或使用指定的网络类型
+                if network_type is None:
+                    network_type = _detect_network_type(checkpoint_path)
+                self.network_type = network_type
+                
+                self.model = Model(self.device, global_model=False, network_type=network_type)
                 try:
                     checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
                     if 'model' in checkpoint:
@@ -88,7 +130,7 @@ class Defenderevaluator:
                     else:
                         self.model.network.load_state_dict(checkpoint)
                     self.model.network.eval()
-                    print(f"[Defender] 已加载RL模型: {checkpoint_path}")
+                    print(f"[Defender] 已加载RL模型 (网络={network_type}): {checkpoint_path}")
                 except Exception as e:
                     print(f"加载模型错误: {e}")
                     raise e
@@ -118,23 +160,32 @@ class Defenderevaluator:
     def get_action(self, obs: np.ndarray, env: object, attacker_obs: np.ndarray = None) -> np.ndarray:
         """Get action from policy"""
         # RL策略（包括各种技能模型）
-        rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase']
+        rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
         
         if self.strategy in rl_strategies:
             # PPO Model Evaluation
-            if hasattr(self.model, 'update_gru_sequence') and hasattr(env, 'env') and hasattr(env.env, 'get_normalized_attacker_info'):
-                 try:
-                    rel_x_norm, rel_y_norm, is_visible = env.env.get_normalized_attacker_info()
-                    self.model.update_gru_sequence(rel_x_norm, rel_y_norm, is_visible)
-                 except AttributeError:
+            # 兼容不同网络结构（MLP/NMN）
+            if hasattr(self.model, 'update_gru_sequence'):
+                try:
+                    if hasattr(env, 'env') and hasattr(env.env, 'get_normalized_attacker_info'):
+                        rel_x_norm, rel_y_norm, is_visible = env.env.get_normalized_attacker_info()
+                        self.model.update_gru_sequence(rel_x_norm, rel_y_norm, is_visible)
+                    elif hasattr(env, 'get_normalized_attacker_info'):
+                        rel_x_norm, rel_y_norm, is_visible = env.get_normalized_attacker_info()
+                        self.model.update_gru_sequence(rel_x_norm, rel_y_norm, is_visible)
+                except (AttributeError, TypeError):
                     pass
 
-            # 构建critic观测
-            if attacker_obs is not None:
-                # 使用完整的defender和attacker观测构建critic_obs
-                critic_obs = build_critic_observation(obs, attacker_obs)
-            else:
-                # 回退到旧方式
+            # 构建critic观测 - 兼容新的build_critic_observation签名
+            try:
+                if attacker_obs is not None:
+                    # 使用完整的defender和attacker观测构建critic_obs
+                    critic_obs = build_critic_observation(obs, attacker_obs)
+                else:
+                    # 回退到旧方式
+                    critic_obs = build_critic_observation(obs)
+            except Exception:
+                # 如果构建失败，直接使用obs
                 critic_obs = obs
             
             with torch.no_grad():
@@ -161,25 +212,48 @@ class Defenderevaluator:
 class Attackerevaluator:
     """Attacker Strategy Evaluator"""
 
+    # 支持的策略列表
+    VALID_STRATEGIES = ['default', 'aggressive', 'evasive', 'flank', 'orbit', 
+                        'attacker_global', 'static', 'random']
+
     def __init__(
         self,
         strategy: str,
+        env_width: float = None,
+        env_height: float = None,
+        attacker_speed: float = None,
+        attacker_max_turn: float = None,
     ):
         self.strategy = strategy
         
-        if strategy == 'attacker_apf':
-            self.model = AttackerAPFPolicy(
-                env_width=map_config.width,
-                env_height=map_config.height
+        # 使用传入参数或默认值
+        env_width = env_width if env_width is not None else map_config.width
+        env_height = env_height if env_height is not None else map_config.height
+        attacker_speed = attacker_speed if attacker_speed is not None else map_config.attacker_speed
+        attacker_max_turn = attacker_max_turn if attacker_max_turn is not None else getattr(map_config, 'attacker_max_angular_speed', 12.0)
+        
+        if strategy == 'attacker_global':
+            self.model = AttackerGlobalPolicy(
+                env_width=env_width,
+                env_height=env_height,
+                attacker_speed=attacker_speed,
+                attacker_max_turn=attacker_max_turn,
             )
-        elif strategy == 'attacker_global':
-            self.model = AttackerGlobalPolicy() 
+        elif strategy in ['default', 'aggressive', 'evasive', 'flank', 'orbit']:
+            # 新的5种核心策略
+            self.model = AttackerGlobalPolicy(
+                env_width=env_width,
+                env_height=env_height,
+                attacker_speed=attacker_speed,
+                attacker_max_turn=attacker_max_turn,
+                strategy=strategy
+            )
         elif strategy == 'static':
             self.model = None 
         elif strategy == 'random':
             self.model = None
         else:
-            self.model = AttackerGlobalPolicy(strategy=strategy)
+            raise ValueError(f"Unknown attacker strategy: {strategy}. Valid strategies: {self.VALID_STRATEGIES}")
 
     def reset(self):
         if hasattr(self.model, 'reset'):
@@ -203,7 +277,8 @@ def run_evaluation(
     gif_episodes: int = 1,
     save_stats: bool = False,
     stats_path: Optional[str] = None,
-    seed_offset: int = 0
+    seed_offset: int = 0,
+    network_type: Optional[str] = None
 ) -> Tuple[Dict, str]:
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] EVAL START: D={defender_strategy} vs A={attacker_strategy}")
@@ -212,7 +287,7 @@ def run_evaluation(
     is_gym_wrapper = False
     
     # RL策略使用BaselineEnv（包括各种技能模型）
-    rl_strategies = ['rl', 'baseline', 'protect', 'protect2', 'chase']
+    rl_strategies = ['rl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
     
     if defender_strategy == 'hrl':
         protect_path = DEFAULT_MODEL_PATHS.get('protect2')
@@ -249,7 +324,7 @@ def run_evaluation(
     )
 
     # 3. Evaluators
-    defender_eval = Defenderevaluator(defender_strategy, defender_checkpoint, device)
+    defender_eval = Defenderevaluator(defender_strategy, defender_checkpoint, device, network_type=network_type)
     # Only useful if NOT using gym wrappers that handle attacker
     attacker_eval = Attackerevaluator(attacker_strategy)
 
@@ -382,19 +457,20 @@ def run_evaluation(
         'std_reward': np.std(stats['rewards']),
     }
     
-    # Save GIF
+    # Save GIF/PNG
     gif_out = None
     if save_gif and episode_frames:
         from util import make_gif
-        if not gif_path: gif_path = f"./output/eval_{defender_strategy}_{datetime.now().strftime('%M%S')}.gif"
+        if not gif_path: gif_path = f"./output/{defender_strategy}_vs_{attacker_strategy}.gif"
         
         # Ensure dir
         os.makedirs(os.path.dirname(gif_path) if os.path.dirname(gif_path) else '.', exist_ok=True)
         
         saved_count = 0
         for idx, reason, frames in episode_frames:
+            # Save GIF with high quality
             p = gif_path.replace('.gif', f'_ep{idx}_{reason}.gif')
-            make_gif(frames, p)
+            make_gif(frames, p, fps=20)
             saved_count += 1
         print(f"  [GIF] Saved {saved_count} gifs")
         gif_out = gif_path
@@ -431,7 +507,7 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
             stats_path=os.path.join(suite_dir, f'res_{d_strat}_vs_{a_strat}.json'),
             save_gif=gif_episodes > 0,
             gif_episodes=gif_episodes,
-            gif_path=os.path.join(suite_dir, f'gif_{d_strat}_vs_{a_strat}.gif')
+            gif_path=os.path.join(suite_dir, f'{d_strat}_vs_{a_strat}.gif')
         )
         
         summary_results.append({
@@ -470,45 +546,37 @@ def interactive_suite_mode():
     defenders = [
         'hrl', 'baseline', 
         'protect', 'protect2', 'chase',
+        'protect1_nmn',
         'astar_to_attacker', 'astar_to_target'
     ]
-    # 包含所有训练时使用的attacker策略
+    # 包含所有训练时使用的attacker策略（精简后的5种核心策略）
     attackers = [
         'random',       # 随机选择以下策略
-        'default',      # 默认策略
-        'direct',       # 直线冲刺
-        'curve',        # 曲线绕行
-        'wait_and_attack',  # 等待进攻
-        'conservative', # 保守策略
-        'zigzag',       # 之字形
-        'flank',        # 侧翼包抄
-        'orbit',        # 绕行策略
-        'aggressive',   # 激进策略
-        'stealth',      # 隐蔽策略
+        'default',      # 默认策略：A*寻路 + 适度避让
+        'aggressive',   # 激进策略：直冲目标，无视Defender
+        'evasive',      # 规避策略：最大化距离并避开Defender视野
+        'flank',        # 侧翼包抄：绕行到Target侧翼
+        'orbit',        # 轨道等待：绕Target运动寻找时机
         'static'        # 静止不动
     ]
     
     defender_names = {
         'hrl': 'HRL分层强化学习',
         'baseline': 'Baseline端到端PPO',
-        'protect': 'Protect技能(v1)',
-        'protect2': 'Protect技能(v2)',
-        'chase': 'Chase追击技能',
+        'protect': 'Protect技能(v1-MLP)',
+        'protect2': 'Protect技能(v2-MLP)',
+        'chase': 'Chase追击技能(MLP)',
+        'protect1_nmn': 'Protect技能(NMN神经模块网络)',
         'astar_to_attacker': 'A*导航-追攻击者',
         'astar_to_target': 'A*导航-守目标'
     }
     attacker_names = {
         'random': '随机(训练用)',
-        'default': '默认策略',
-        'direct': '直线冲刺',
-        'curve': '曲线绕行',
-        'wait_and_attack': '等待进攻',
-        'conservative': '保守策略',
-        'zigzag': '之字形',
+        'default': '默认策略(A*+适度避让)',
+        'aggressive': '激进策略(直冲)',
+        'evasive': '规避策略(避视野)',
         'flank': '侧翼包抄',
-        'orbit': '绕行策略',
-        'aggressive': '激进策略',
-        'stealth': '隐蔽策略',
+        'orbit': '轨道等待',
         'static': '静止不动'
     }
     
@@ -591,6 +659,8 @@ def main():
     parser.add_argument('--episodes', '-n', type=int, default=30, help="评估回合数")
     parser.add_argument('--gif', action='store_true', help="保存GIF")
     parser.add_argument('--checkpoint', type=str, default=None, help="模型检查点路径")
+    parser.add_argument('--network-type', type=str, default=None, choices=['nmn', 'mlp'],
+                        help="网络类型: nmn (神经模块网络) 或 mlp (多层感知机)，不指定则自动检测")
     
     args = parser.parse_args()
     
@@ -614,7 +684,8 @@ def main():
             num_episodes=args.episodes,
             defender_checkpoint=ckpt,
             save_gif=True if args.gif else False,
-            gif_episodes=10 if args.gif else 0
+            gif_episodes=10 if args.gif else 0,
+            network_type=args.network_type
         )
     else:
         # 默认进入交互式界面

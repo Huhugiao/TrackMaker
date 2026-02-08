@@ -74,7 +74,7 @@ def main():
     else:
         ray.init(num_cpus=n_envs, num_gpus=ray_num_gpus)
     
-    model = Model(device=device, global_model=True)
+    model = Model(device=device, global_model=True, network_type='mlp')  # HRL顶层使用CTDE MLP
     
     # Initialize HRL Runners with random attacker strategies
     runners = [HRLRunner.remote(i, env_configs={'attacker_strategy': 'random'}) for i in range(n_envs)]

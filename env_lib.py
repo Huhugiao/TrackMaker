@@ -847,8 +847,8 @@ def _draw_trail_academic(surface, traj, color_rgb, width_px, time_markers=True):
     if pygame is None or len(traj) < 2:
         return
     ss = getattr(map_config, 'ssaa', 1)
-    max_len = getattr(map_config, 'trail_max_len', 600)
-    points = traj[-max_len:]
+    # 移除轨迹长度限制，绘制完整轨迹
+    points = traj
     if len(points) < 2:
         return
 
@@ -1056,35 +1056,29 @@ def get_canvas_tad(target, defender, attacker, defender_traj, attacker_traj, sur
         _draw_obstacles_academic(surface, exclude_obstacle=collision_info.get('collided_obstacle'))
     else:
         _draw_obstacles_academic(surface)
-
     _draw_fov_academic(surface, defender, fov_points)
     _draw_capture_sector_academic(surface, defender)
     _draw_capture_radius_academic(surface, defender)
-
     # Defender trail (blue)
     _draw_trail_academic(surface, defender_traj, (50, 100, 220), map_config.trail_width)
     # Attacker trail (red)
     _draw_trail_academic(surface, attacker_traj, (220, 80, 60), map_config.trail_width)
-
-    # Start markers
-    if defender_traj:
-        _draw_start_marker(surface, defender_traj[0], (50, 100, 220), ss)
-    if attacker_traj:
-        _draw_start_marker(surface, attacker_traj[0], (220, 80, 60), ss)
-
     # Draw agents
     if collision_info and collision_info.get('collision'):
         _draw_agent_academic(surface, defender, (220, 50, 50), role='defender')
     else:
         _draw_agent_academic(surface, defender, (50, 100, 220), role='defender')
-
     if collision_info and collision_info.get('attacker_collision'):
         _draw_agent_academic(surface, attacker, (180, 50, 220), role='attacker')
     else:
         _draw_agent_academic(surface, attacker, (220, 80, 60), role='attacker')
-
     # Target
     _draw_agent_academic(surface, target, (50, 180, 80), role='target')
+    # Start markers (draw AFTER trails so they don't get covered)
+    if defender_traj:
+        _draw_start_marker(surface, defender_traj[0], (50, 100, 220), ss)
+    if attacker_traj:
+        _draw_start_marker(surface, attacker_traj[0], (220, 80, 60), ss)
 
     canvas = pygame.transform.smoothscale(surface, (w, h)) if ss > 1 else surface
     return pygame.surfarray.array3d(canvas).swapaxes(0, 1)
@@ -1135,7 +1129,7 @@ class _MplRenderer:
     # ------------------------------------------------------------------
     def render_frame(self, target, defender, attacker,
                      defender_traj, attacker_traj,
-                     fov_points=None, collision_info=None):
+                     fov_points=None, collision_info=None, **kwargs):
         """Render one frame -> HxWx3 uint8 numpy array."""
         ax = self.ax
         plt = self._plt
@@ -1197,12 +1191,16 @@ class _MplRenderer:
                 facecolor=c_def, alpha=0.06, edgecolor='none', zorder=1)
             ax.add_patch(fov_poly)
             center = fov_world[0]
-            p_left = fov_world[1]
-            p_right = fov_world[-1]
-            ax.plot([center[0], p_left[0]], [center[1], p_left[1]],
-                    color=c_def, alpha=0.3, linewidth=0.6, zorder=1)
-            ax.plot([center[0], p_right[0]], [center[1], p_right[1]],
-                    color=c_def, alpha=0.3, linewidth=0.6, zorder=1)
+            # FOV边界线: 仅在非全向视野时绘制 (360°视野无边界)
+            fov_angle = float(getattr(map_config, 'FOV_ANGLE',
+                              getattr(getattr(map_config, 'EnvParameters', None), 'FOV_ANGLE', 360)))
+            if fov_angle < 359.0:
+                p_left = fov_world[1]
+                p_right = fov_world[-1]
+                ax.plot([center[0], p_left[0]], [center[1], p_left[1]],
+                        color=c_def, alpha=0.3, linewidth=0.6, zorder=1)
+                ax.plot([center[0], p_right[0]], [center[1], p_right[1]],
+                        color=c_def, alpha=0.3, linewidth=0.6, zorder=1)
 
         # ── Capture sector (SECTOR with angle, NOT 360 circle!) ──────
         capture_radius = float(getattr(map_config, 'capture_radius', 20.0))
@@ -1223,8 +1221,10 @@ class _MplRenderer:
         ax.add_patch(wedge)
 
         # ── Trajectories ─────────────────────────────────────────────
-        self._draw_traj(ax, defender_traj, c_def, 'Defender')
-        self._draw_traj(ax, attacker_traj, c_atk, 'Attacker')
+        self._draw_traj(ax, defender_traj, c_def, 'Defender',
+                        start_pos=kwargs.get('defender_start_pos'))
+        self._draw_traj(ax, attacker_traj, c_atk, 'Attacker',
+                        start_pos=kwargs.get('attacker_start_pos'))
 
         # ── Agent current positions ──────────────────────────────────
         self._draw_agent(ax, defender, c_def, 'Defender')
@@ -1271,12 +1271,16 @@ class _MplRenderer:
 
     # ------------------------------------------------------------------
     @staticmethod
-    def _draw_traj(ax, traj, color, label):
-        """Draw trajectory with markers and arrows (matching PNG style)."""
+    def _draw_traj(ax, traj, color, label, start_pos=None):
+        """Draw full trajectory with markers and arrows (matching PNG style).
+        
+        Args:
+            start_pos: 真实出生点坐标 (x, y)。当轨迹被截断时，
+                       traj[0] 不再是出生点，需用此参数绘制固定标记。
+        """
         if len(traj) < 2:
             return
-        max_len = getattr(map_config, 'trail_max_len', 600)
-        pts = traj[-max_len:]
+        pts = traj
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
         n = len(xs)
@@ -1285,11 +1289,8 @@ class _MplRenderer:
         ax.plot(xs, ys, color=color, linewidth=1.4,
                 alpha=0.75, zorder=4, label=label)
 
-
-
-        # Direction arrows — fixed absolute spacing so arrows appear
-        # gradually as the trajectory grows (not all at once from start).
-        _ARROW_SPACING = 20          # place one arrow every 20 data points
+        # Direction arrows — fixed absolute spacing
+        _ARROW_SPACING = 20
         for i in range(_ARROW_SPACING, n - 1, _ARROW_SPACING):
             dxx = xs[min(i + 1, n - 1)] - xs[i]
             dyy = ys[min(i + 1, n - 1)] - ys[i]
@@ -1301,8 +1302,9 @@ class _MplRenderer:
                                     lw=1.2, mutation_scale=8),
                     zorder=5)
 
-        # Start marker (square)
-        ax.plot(xs[0], ys[0], 's', color=color, markersize=7,
+        # Start marker (square) — 使用真实出生点
+        sx, sy = (start_pos if start_pos else (xs[0], ys[0]))
+        ax.plot(sx, sy, 's', color=color, markersize=7,
                 markeredgecolor='white', markeredgewidth=1.0, zorder=6)
 
     # ------------------------------------------------------------------
@@ -1350,7 +1352,7 @@ _mpl_renderer = None
 
 def get_canvas_tad_matplotlib(target, defender, attacker,
                                defender_traj, attacker_traj,
-                               fov_points=None, collision_info=None):
+                               fov_points=None, collision_info=None, **kwargs):
     """Render TAD scene using matplotlib (academic style).
     
     Produces frames visually identical to the trajectory PNG/PDF plots.
@@ -1372,179 +1374,4 @@ def get_canvas_tad_matplotlib(target, defender, attacker,
         target, defender, attacker,
         defender_traj, attacker_traj,
         fov_points=fov_points,
-        collision_info=collision_info)
-
-
-def reset_mpl_renderer():
-    """Close and reset the matplotlib renderer (call on env.close())."""
-    global _mpl_renderer
-    if _mpl_renderer is not None:
-        _mpl_renderer.close()
-    _mpl_renderer = None
-
-
-def reward_calculate_protect1(defender, attacker, target, prev_defender=None, prev_attacker=None,
-                              defender_collision=False, attacker_collision=False,
-                              defender_captured=False, attacker_captured=False,
-                              capture_progress_defender=0, capture_progress_attacker=0,
-                              capture_required_steps=0, radar=None, initial_dist_def_tgt=None,
-                              collision_cooldown=0):
-    """
-    Protect阶段1奖励函数：学会导航到target
-    
-    特点：
-    - 对手静止 (attacker_static)
-    - 只有靠近target的进度奖励 + 碰撞惩罚
-    - 到达target附近即成功 (不考虑任务胜负)
-    - 无时间惩罚
-    
-    奖励（V2版本 - 碰撞不终止）：
-    - 进度奖励：根据与target距离变化按比例给奖励
-    - defender到达target: +20 (胜利!)
-    - defender碰撞障碍物: -5 (不终止episode，10步冷却内不重复惩罚)
-    
-    # === 原版本（碰撞终止）===
-    # 奖励：
-    # - 进度奖励：根据与target距离变化按比例给奖励
-    # - defender到达target: +20 (胜利!)
-    # - defender碰撞障碍物: -20 (episode终止)
-    """
-    info = {
-        'capture_progress_defender': int(capture_progress_defender),
-        'capture_progress_attacker': int(capture_progress_attacker),
-        'capture_required_steps': int(capture_required_steps),
-        'defender_collision': bool(defender_collision),
-        'attacker_collision': bool(attacker_collision)
-    }
-
-    reward = 0.0
-    terminated = False
-
-    # 计算defender到target的距离
-    dx_def_tgt = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
-    dy_def_tgt = (defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
-    curr_dist_def_tgt = math.hypot(dx_def_tgt, dy_def_tgt)
-
-    success_reward = 20
-    target_radius = float(getattr(map_config, 'target_radius', 16.0))
-    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
-    reach_radius = target_radius + agent_radius
-
-    # 距离奖励：按进度比例给奖励
-    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > reach_radius:
-        prev_dx_def_tgt = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
-        prev_dy_def_tgt = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
-        prev_dist_def_tgt = math.hypot(prev_dx_def_tgt, prev_dy_def_tgt)
-
-        prev_boundary_dist = max(0.0, prev_dist_def_tgt - reach_radius)
-        curr_boundary_dist = max(0.0, curr_dist_def_tgt - reach_radius)
-        initial_boundary_dist = max(0.0, initial_dist_def_tgt - reach_radius)
-
-        if initial_boundary_dist > 0:
-            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
-            distance_reward = distance_progress * success_reward
-            reward += distance_reward
-
-    # 终止条件判断 (protect1: 只关注导航)
-    # 1. Defender到达Target - 胜利!
-    if curr_dist_def_tgt <= reach_radius:
-        terminated = True
-        info['reason'] = 'defender_reached_target'
-        info['win'] = True
-        reward += 0.2*success_reward
-    
-    # # 2. Defender碰撞障碍物 - 失败 (碰撞终止版本)
-    # elif defender_collision:
-    #     terminated = True
-    #     reward -= success_reward
-    #     info['reason'] = 'defender_collision'
-    #     info['win'] = False
-    
-    # 2. Defender碰撞障碍物 - V2: 不终止episode，惩罚-5，10步冷却
-    if defender_collision and collision_cooldown == 0:
-        reward -= 5.0
-        info['collision_penalty_applied'] = True
-    
-    # 注意：protect1 不因 attacker_captured 终止，因为对手静止，这种情况不会发生
-
-    return float(reward), bool(terminated), False, info
-
-
-def reward_calculate_protect2(defender, attacker, target, prev_defender=None, prev_attacker=None,
-                              defender_collision=False, attacker_collision=False,
-                              defender_captured=False, attacker_captured=False,
-                              capture_progress_defender=0, capture_progress_attacker=0,
-                              capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
-    """
-    Protect阶段2奖励函数：到达target后保护它
-    
-    特点：
-    - 对手使用导航策略 (attacker_global)
-    - 包含导航奖励 + 任务胜负奖励
-    - Success条件与完整任务相同
-    
-    奖励：
-    - 进度奖励：根据与target距离变化按比例给奖励 (继承自protect1)
-    - defender抓住attacker: +20 (胜利!)
-    - attacker抓住target: -20 (失败)
-    - defender碰撞障碍物: -20 (失败)
-    - 超时: 算defender胜利 (由env.py处理)
-    - 无时间惩罚
-    """
-    info = {
-        'capture_progress_defender': int(capture_progress_defender),
-        'capture_progress_attacker': int(capture_progress_attacker),
-        'capture_required_steps': int(capture_required_steps),
-        'defender_collision': bool(defender_collision),
-        'attacker_collision': bool(attacker_collision)
-    }
-
-    reward = 0.0
-    terminated = False
-
-    # 计算defender到target的距离
-    dx_def_tgt = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
-    dy_def_tgt = (defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
-    curr_dist_def_tgt = math.hypot(dx_def_tgt, dy_def_tgt)
-
-    success_reward = float(getattr(map_config, 'success_reward', 20.0))
-    target_radius = float(getattr(map_config, 'target_radius', 16.0))
-    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
-    reach_radius = target_radius + agent_radius
-
-    # 距离奖励：按进度比例给奖励 (导航到target)
-    if prev_defender is not None and initial_dist_def_tgt is not None and initial_dist_def_tgt > reach_radius:
-        prev_dx_def_tgt = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
-        prev_dy_def_tgt = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
-        prev_dist_def_tgt = math.hypot(prev_dx_def_tgt, prev_dy_def_tgt)
-
-        prev_boundary_dist = max(0.0, prev_dist_def_tgt - reach_radius)
-        curr_boundary_dist = max(0.0, curr_dist_def_tgt - reach_radius)
-        initial_boundary_dist = max(0.0, initial_dist_def_tgt - reach_radius)
-
-        if initial_boundary_dist > 0:
-            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
-            distance_reward = distance_progress * success_reward
-            reward += distance_reward
-
-    # 终止条件判断 (protect2: 完整任务胜负条件)
-    # 1. Defender抓住Attacker - 胜利!
-    if defender_captured:
-        terminated = True
-        info['reason'] = 'defender_caught_attacker'
-        info['win'] = True
-        reward += success_reward
-    # 2. Attacker抓住Target - 失败
-    elif attacker_captured:
-        terminated = True
-        info['reason'] = 'attacker_caught_target'
-        info['win'] = False
-        reward -= success_reward
-    # 3. Defender碰撞障碍物 - 失败
-    elif defender_collision:
-        terminated = True
-        reward -= success_reward
-        info['reason'] = 'defender_collision'
-        info['win'] = False
-
-    return float(reward), bool(terminated), False, info
+        collision_info=collision_info, **kwargs)

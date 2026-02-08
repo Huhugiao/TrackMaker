@@ -12,12 +12,12 @@ Single Episode Visualization Script
 
 Defender策略:
 - rl: 使用RL训练的策略（需要指定checkpoint路径）
-- defender_apf: 使用APF规则策略
-- defender_simple: 使用简单规则策略（追击+搜索+避障）
+- astar_to_target: 使用A*导航策略（守护目标）
+- astar_to_attacker: 使用A*导航策略（追击攻击者）
 
 Attacker策略:
-- attacker_apf: 使用APF规则策略
-- attacker_simple: 使用简单规则策略（潜行+规避+避障）
+- attacker_global: 使用全局路径规划策略
+- default/aggressive/evasive/flank/orbit: 5种核心策略
 """
 
 import os
@@ -38,9 +38,8 @@ from env import TrackingEnv
 import env_lib
 from ppo.model import Model
 from rule_policies import (
-    DefenderAPFPolicy,
-    AttackerAPFPolicy,
     AttackerGlobalPolicy,
+    DefenderGlobalPolicy,
 )
 
 
@@ -64,14 +63,12 @@ class Defenderevaluator:
             self.model.set_weights(checkpoint['model'])
             self.model.network.eval()
             print(f"[Defender] Loaded RL model from {checkpoint_path}")
-        elif strategy == 'defender_apf':
-            self.model = DefenderAPFPolicy(
-                env_width=map_config.width,
-                env_height=map_config.height,
-                defender_speed=map_config.defender_speed,
-                defender_max_turn=getattr(map_config, 'defender_max_angular_speed', 6.0),
-            )
-            print(f"[Defender] Using APF policy")
+        elif strategy == 'astar_to_target':
+            self.model = DefenderGlobalPolicy(skill_mode='protect')
+            print(f"[Defender] Using A* navigation strategy (protect target)")
+        elif strategy == 'astar_to_attacker':
+            self.model = DefenderGlobalPolicy(skill_mode='chase')
+            print(f"[Defender] Using A* navigation strategy (chase attacker)")
         else:
             raise ValueError(f"Unknown defender strategy: {strategy}")
 
@@ -96,7 +93,7 @@ class Defenderevaluator:
             action, _, _, _ = self.model.evaluate(defender_obs, critic_obs, greedy=True)
             return action
 
-        elif self.strategy == 'defender_apf':
+        elif self.strategy in ['astar_to_target', 'astar_to_attacker']:
             if self.privileged_state:
                 defender_pos = np.array([
                     self.privileged_state['defender']['center_x'],
@@ -115,6 +112,10 @@ class Defenderevaluator:
 class Attackerevaluator:
     """Attacker策略评估器"""
 
+    # 支持的策略列表（精简后的5种核心策略）
+    VALID_STRATEGIES = ['default', 'aggressive', 'evasive', 'flank', 'orbit', 
+                        'attacker_global']
+
     def __init__(
         self,
         strategy: str,
@@ -131,15 +132,7 @@ class Attackerevaluator:
         attacker_speed = attacker_speed if attacker_speed is not None else map_config.attacker_speed
         attacker_max_turn = attacker_max_turn if attacker_max_turn is not None else getattr(map_config, 'attacker_max_angular_speed', 12.0)
 
-        if strategy == 'attacker_apf':
-            self.model = AttackerAPFPolicy(
-                env_width=env_width,
-                env_height=env_height,
-                attacker_speed=attacker_speed,
-                attacker_max_turn=attacker_max_turn,
-            )
-            print(f"[Attacker] Using APF policy")
-        elif strategy == 'attacker_global':
+        if strategy == 'attacker_global':
             self.model = AttackerGlobalPolicy(
                 env_width=env_width,
                 env_height=env_height,
@@ -147,8 +140,25 @@ class Attackerevaluator:
                 attacker_max_turn=attacker_max_turn,
             )
             print(f"[Attacker] Using Global pathfinding policy (A* navigation)")
+        elif strategy in ['default', 'aggressive', 'evasive', 'flank', 'orbit']:
+            # 新的5种核心策略
+            self.model = AttackerGlobalPolicy(
+                env_width=env_width,
+                env_height=env_height,
+                attacker_speed=attacker_speed,
+                attacker_max_turn=attacker_max_turn,
+                strategy=strategy
+            )
+            strategy_names = {
+                'default': '默认策略(A*+适度避让)',
+                'aggressive': '激进策略(直冲)',
+                'evasive': '规避策略(避视野)',
+                'flank': '侧翼包抄',
+                'orbit': '轨道等待'
+            }
+            print(f"[Attacker] Using {strategy_names.get(strategy, strategy)} strategy")
         else:
-            raise ValueError(f"Unknown attacker strategy: {strategy}")
+            raise ValueError(f"Unknown attacker strategy: {strategy}. Valid strategies: {self.VALID_STRATEGIES}")
 
     def reset(self):
         """重置评估器状态"""
@@ -173,8 +183,8 @@ def run_episode_viz(
     运行单个episode并实时可视化
 
     Args:
-        defender_strategy: Defender策略 ('rl', 'defender_apf', 'defender_simple')
-        attacker_strategy: Attacker策略 ('attacker_apf', 'attacker_simple')
+        defender_strategy: Defender策略 ('rl', 'astar_to_target', 'astar_to_attacker')
+        attacker_strategy: Attacker策略 ('attacker_global', 'default', 'aggressive', 'evasive', 'flank', 'orbit')
         defender_checkpoint: RL策略的checkpoint路径
         device: 设备
         fps: 渲染帧率（默认30）
@@ -372,8 +382,8 @@ def main():
     d_group.add_argument(
         '--defender', '-d',
         type=str,
-        default='defender_apf',
-        choices=['rl', 'defender_apf'],
+        default='astar_to_target',
+        choices=['rl', 'astar_to_target', 'astar_to_attacker'],
         help='Defender strategy'
     )
     d_group.add_argument(
@@ -389,8 +399,8 @@ def main():
         '--attacker', '-a',
         type=str,
         default='attacker_global',
-        choices=['attacker_apf', 'attacker_global'],
-        help='Attacker strategy'
+        choices=['attacker_global', 'default', 'aggressive', 'evasive', 'flank', 'orbit'],
+        help='Attacker strategy (default/aggressive/evasive/flank/orbit are the 5 core strategies)'
     )
 
     # 评估配置

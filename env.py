@@ -36,6 +36,8 @@ class TADEnv(gym.Env):
         self._render_surface = None
         self.defender_trajectory = []
         self.attacker_trajectory = []
+        self.defender_start_pos = None
+        self.attacker_start_pos = None
         self.step_count = 0
         self.prev_defender_pos = None
         self.last_defender_pos = None
@@ -358,11 +360,7 @@ class TADEnv(gym.Env):
         self._fov_cache_valid = False
         self.defender_trajectory.append((self.defender['x'] + self.pixel_size / 2.0, self.defender['y'] + self.pixel_size / 2.0))
         self.attacker_trajectory.append((self.attacker['x'] + self.pixel_size / 2.0, self.attacker['y'] + self.pixel_size / 2.0))
-        max_len = getattr(map_config, 'trail_max_len', 600)
-        if len(self.defender_trajectory) > max_len:
-            self.defender_trajectory = self.defender_trajectory[-max_len:]
-        if len(self.attacker_trajectory) > max_len:
-            self.attacker_trajectory = self.attacker_trajectory[-max_len:]
+        # 轨迹不截断，保留完整历史 (GIF/PNG绘制需要完整轨迹)
 
         # 更新 last_xxx_pos（用于轨迹记录等）
         self.last_defender_pos = self.defender.copy()
@@ -528,6 +526,8 @@ class TADEnv(gym.Env):
         self.initial_dist_def_att = math.hypot(dx_def_att, dy_def_att)
         self.defender_trajectory = []
         self.attacker_trajectory = []
+        self.defender_start_pos = (self.defender['x'] + self.pixel_size / 2.0, self.defender['y'] + self.pixel_size / 2.0)
+        self.attacker_start_pos = (self.attacker['x'] + self.pixel_size / 2.0, self.attacker['y'] + self.pixel_size / 2.0)
 
         self.prev_defender_pos = self.defender.copy()
         self.last_defender_pos = self.defender.copy()
@@ -706,6 +706,8 @@ class TADEnv(gym.Env):
                 self.target, self.defender, self.attacker,
                 self.defender_trajectory, self.attacker_trajectory,
                 fov_points=fov_points,
+                defender_start_pos=getattr(self, 'defender_start_pos', None),
+                attacker_start_pos=getattr(self, 'attacker_start_pos', None),
                 collision_info=collision_info
             )
         

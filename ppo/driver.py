@@ -320,13 +320,11 @@ def main():
                 gif_path = osp.join(gif_dir, f"eval_{global_step}.gif")
                 make_gif(eval_result['frames'], gif_path)
             
-            # Generate academic trajectory plot (always, even without GIF)
+            # Generate academic trajectory plot (controlled by TRAJ_INTERVAL)
             traj_data = eval_result.get('trajectory_data')
-            if traj_data:
+            if traj_data and ((global_step // RecordingParameters.TRAJ_INTERVAL) > ((global_step - steps_this_update) // RecordingParameters.TRAJ_INTERVAL)):
                 traj_png = osp.join(gif_dir, f"traj_{global_step}.png")
-                traj_pdf = osp.join(gif_dir, f"traj_{global_step}.pdf")
                 make_trajectory_plot(traj_data, traj_png, dpi=150)
-                make_trajectory_plot(traj_data, traj_pdf, dpi=300)
             
             if eval_reward > best_reward:
                 best_reward = eval_reward
