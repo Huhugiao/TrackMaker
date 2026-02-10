@@ -34,24 +34,25 @@ class RadarEncoder(nn.Module):
 class DefenderNetMLP(nn.Module):
     """
     Defender Actor-Critic 网络 (MLP版本)
-    
+
     Actor输入: Defender观测 (71维)
       - attacker_info: 5维 [distance, bearing, fov_edge, is_visible, unobserved_time]
       - radar: 64维
       - target_info: 2维 [target_distance, target_bearing]
-      
-    Critic输入: Defender观测 + Attacker特权观测 (142维, CTDE)
-    
+
+    Critic输入: Defender观测 + Attacker特权观测 (CTDE)
+
     输出:
-      - mean: 动作均值 (2维)
+      - mean: 动作均值 (action_dim维)
       - value: 状态价值
       - log_std: 动作标准差对数
     """
-    def __init__(self):
+    def __init__(self, action_dim=None):
         super(DefenderNetMLP, self).__init__()
         
         self.hidden_dim = NetParameters.HIDDEN_DIM
         self.num_layers = getattr(NetParameters, 'NUM_HIDDEN_LAYERS', 3)
+        self.action_dim = int(NetParameters.ACTION_DIM if action_dim is None else action_dim)
         
         # Radar Encoder (shared)
         self.radar_encoder = RadarEncoder()
@@ -64,8 +65,8 @@ class DefenderNetMLP(nn.Module):
             self.num_layers
         )
         
-        self.policy_mean = nn.Linear(self.hidden_dim, NetParameters.ACTION_DIM)
-        self.log_std = nn.Parameter(torch.zeros(NetParameters.ACTION_DIM))
+        self.policy_mean = nn.Linear(self.hidden_dim, self.action_dim)
+        self.log_std = nn.Parameter(torch.zeros(self.action_dim))
         
         # --- Critic Network (CTDE: 训练时使用完整观测) ---
         # Input: Defender (15) + Attacker (15) = 30 (Encoded)
@@ -354,19 +355,14 @@ class DefenderNetNMN(nn.Module):
 # Factory function: 根据 network_type 创建对应网络
 # ======================================================================
 def create_network(network_type='nmn'):
-    """
-    网络工厂函数
-
-    Args:
-        network_type: 'nmn' → DefenderNetNMN (底层技能训练)
-                      'mlp' → DefenderNetMLP (HRL顶层, CTDE)
-    Returns:
-        nn.Module
-    """
+    """网络工厂函数。"""
     if network_type == 'nmn':
         return DefenderNetNMN()
-    elif network_type == 'mlp':
+    if network_type == 'mlp':
         return DefenderNetMLP()
-    else:
-        raise ValueError(f"Unknown network_type: {network_type!r}. "
-                         f"Choose 'nmn' or 'mlp'.")
+    if network_type == 'hrl_top':
+        # Top-level HRL outputs [protect_logit, chase_logit, hold_control].
+        return DefenderNetMLP(action_dim=3)
+    raise ValueError(
+        f"Unknown network_type: {network_type!r}. Choose 'nmn', 'mlp', or 'hrl_top'."
+    )

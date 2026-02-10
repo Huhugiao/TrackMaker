@@ -447,125 +447,6 @@ def agent_move_velocity(agent, angle_delta, speed, max_speed, role=None):
         return _resolve_obstacle_collision(old_state, agent)
     return agent
 
-def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_attacker=None,
-                         defender_collision=False, attacker_collision=False,
-                         defender_captured=False, attacker_captured=False,
-                         capture_progress_defender=0, capture_progress_attacker=0,
-                         capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
-    info = {
-        'capture_progress_defender': int(capture_progress_defender),
-        'capture_progress_attacker': int(capture_progress_attacker),
-        'capture_required_steps': int(capture_required_steps),
-        'defender_collision': bool(defender_collision),
-        'attacker_collision': bool(attacker_collision)
-    }
-
-    reward = 0.0
-    terminated = False
-
-    # 时间惩罚
-    reward -= 0.01
-
-    success_reward = float(getattr(map_config, 'success_reward', 20.0))
-
-    if defender_captured:
-        terminated = True
-        info['reason'] = 'defender_caught_attacker'
-        info['win'] = True
-        reward += success_reward
-    elif attacker_captured:
-        terminated = True
-        info['reason'] = 'attacker_caught_target'
-        info['win'] = False
-        reward -= success_reward
-    elif defender_collision:
-        terminated = True
-        reward -= success_reward
-        info['reason'] = 'defender_collision'
-        info['win'] = False
-    # attacker_collision 不影响 episode 终止，仅记录在 info 中
-
-    return float(reward), bool(terminated), False, info
-
-
-def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_attacker=None,
-                           defender_collision=False, attacker_collision=False,
-                           defender_captured=False, attacker_captured=False,
-                           capture_progress_defender=0, capture_progress_attacker=0,
-                           capture_required_steps=0, radar=None, initial_dist_def_att=None):
-    """
-    纯追逃奖励函数 - 用于训练 Chase 技能
-
-    特点：
-    - 纯追逃环境：忽略 target 的任何判定（attacker_captured 不触发终止）
-    - 时间惩罚：每步-0.04（总共约-20）
-    - defender捕获attacker: +10，episode结束
-    - defender靠近attacker的微分奖励: 总计+10（按进度比例）
-    - defender碰撞障碍物: -10，episode结束
-    - attacker碰撞障碍物: 不结束episode
-    - 超时算defender失败: 无额外奖励
-    - 不使用GRU预测器
-    """
-    info = {
-        'capture_progress_defender': int(capture_progress_defender),
-        'capture_progress_attacker': int(capture_progress_attacker),
-        'capture_required_steps': int(capture_required_steps),
-        'defender_collision': bool(defender_collision),
-        'attacker_collision': bool(attacker_collision)
-    }
-
-    reward = 0.0
-    terminated = False
-
-    # 时间惩罚：每步-0.04
-    reward -= 0.04
-
-    # 奖励配置
-    capture_reward = 10.0  # 捕获奖励
-    distance_total_reward = 10.0  # 微分距离奖励总计
-    collision_penalty = 10.0  # 碰撞惩罚
-
-    # 计算defender到attacker的距离
-    dx_def_att = (defender['x'] + map_config.pixel_size * 0.5) - (attacker['x'] + map_config.pixel_size * 0.5)
-    dy_def_att = (defender['y'] + map_config.pixel_size * 0.5) - (attacker['y'] + map_config.pixel_size * 0.5)
-    curr_dist_def_att = math.hypot(dx_def_att, dy_def_att)
-
-    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
-    capture_radius = agent_radius * 2  # 两个agent的半径之和
-
-    # 微分距离奖励：按进度比例给奖励（类似protect1的导航奖励）
-    if prev_defender is not None and prev_attacker is not None and initial_dist_def_att is not None and initial_dist_def_att > capture_radius:
-        prev_dx_def_att = (prev_defender['x'] + map_config.pixel_size * 0.5) - (prev_attacker['x'] + map_config.pixel_size * 0.5)
-        prev_dy_def_att = (prev_defender['y'] + map_config.pixel_size * 0.5) - (prev_attacker['y'] + map_config.pixel_size * 0.5)
-        prev_dist_def_att = math.hypot(prev_dx_def_att, prev_dy_def_att)
-
-        # 计算边界距离（到捕获半径的距离）
-        prev_boundary_dist = max(0.0, prev_dist_def_att - capture_radius)
-        curr_boundary_dist = max(0.0, curr_dist_def_att - capture_radius)
-        initial_boundary_dist = max(0.0, initial_dist_def_att - capture_radius)
-
-        if initial_boundary_dist > 0:
-            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
-            distance_reward = distance_progress * distance_total_reward
-            reward += distance_reward
-
-    # 终止奖励 - 纯追逃：只关心 defender 捕获 attacker，忽略 target
-    if defender_captured:
-        terminated = True
-        info['reason'] = 'defender_caught_attacker'
-        info['win'] = True
-        reward += capture_reward
-    elif defender_collision:
-        terminated = True
-        reward -= collision_penalty
-        info['reason'] = 'defender_collision'
-        info['win'] = False
-    # 注意：attacker_captured (attacker到达target) 被忽略，不触发终止
-    # attacker_collision 也不影响 episode 终止，仅记录在 info 中
-
-    return float(reward), bool(terminated), False, info
-
-
     ss = float(getattr(map_config, 'ssaa', 1))
     target_radius = float(getattr(map_config, 'target_radius', 16))
     x_world = float(target['x']) + float(map_config.pixel_size) * 0.5
@@ -674,125 +555,6 @@ def agent_move_velocity(agent, angle_delta, speed, max_speed, role=None):
     if role == 'attacker':
         return _resolve_obstacle_collision(old_state, agent)
     return agent
-
-def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_attacker=None,
-                         defender_collision=False, attacker_collision=False,
-                         defender_captured=False, attacker_captured=False,
-                         capture_progress_defender=0, capture_progress_attacker=0,
-                         capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
-    info = {
-        'capture_progress_defender': int(capture_progress_defender),
-        'capture_progress_attacker': int(capture_progress_attacker),
-        'capture_required_steps': int(capture_required_steps),
-        'defender_collision': bool(defender_collision),
-        'attacker_collision': bool(attacker_collision)
-    }
-
-    reward = 0.0
-    terminated = False
-
-    # 时间惩罚
-    reward -= 0.01
-
-    success_reward = float(getattr(map_config, 'success_reward', 20.0))
-
-    if defender_captured:
-        terminated = True
-        info['reason'] = 'defender_caught_attacker'
-        info['win'] = True
-        reward += success_reward
-    elif attacker_captured:
-        terminated = True
-        info['reason'] = 'attacker_caught_target'
-        info['win'] = False
-        reward -= success_reward
-    elif defender_collision:
-        terminated = True
-        reward -= success_reward
-        info['reason'] = 'defender_collision'
-        info['win'] = False
-    # attacker_collision 不影响 episode 终止，仅记录在 info 中
-
-    return float(reward), bool(terminated), False, info
-
-
-def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_attacker=None,
-                           defender_collision=False, attacker_collision=False,
-                           defender_captured=False, attacker_captured=False,
-                           capture_progress_defender=0, capture_progress_attacker=0,
-                           capture_required_steps=0, radar=None, initial_dist_def_att=None):
-    """
-    纯追逃奖励函数 - 用于训练 Chase 技能
-
-    特点：
-    - 纯追逃环境：忽略 target 的任何判定（attacker_captured 不触发终止）
-    - 时间惩罚：每步-0.04（总共约-20）
-    - defender捕获attacker: +10，episode结束
-    - defender靠近attacker的微分奖励: 总计+10（按进度比例）
-    - defender碰撞障碍物: -10，episode结束
-    - attacker碰撞障碍物: 不结束episode
-    - 超时算defender失败: 无额外奖励
-    - 不使用GRU预测器
-    """
-    info = {
-        'capture_progress_defender': int(capture_progress_defender),
-        'capture_progress_attacker': int(capture_progress_attacker),
-        'capture_required_steps': int(capture_required_steps),
-        'defender_collision': bool(defender_collision),
-        'attacker_collision': bool(attacker_collision)
-    }
-
-    reward = 0.0
-    terminated = False
-
-    # 时间惩罚：每步-0.04
-    reward -= 0.04
-
-    # 奖励配置
-    capture_reward = 10.0  # 捕获奖励
-    distance_total_reward = 10.0  # 微分距离奖励总计
-    collision_penalty = 10.0  # 碰撞惩罚
-
-    # 计算defender到attacker的距离
-    dx_def_att = (defender['x'] + map_config.pixel_size * 0.5) - (attacker['x'] + map_config.pixel_size * 0.5)
-    dy_def_att = (defender['y'] + map_config.pixel_size * 0.5) - (attacker['y'] + map_config.pixel_size * 0.5)
-    curr_dist_def_att = math.hypot(dx_def_att, dy_def_att)
-
-    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
-    capture_radius = agent_radius * 2  # 两个agent的半径之和
-
-    # 微分距离奖励：按进度比例给奖励（类似protect1的导航奖励）
-    if prev_defender is not None and prev_attacker is not None and initial_dist_def_att is not None and initial_dist_def_att > capture_radius:
-        prev_dx_def_att = (prev_defender['x'] + map_config.pixel_size * 0.5) - (prev_attacker['x'] + map_config.pixel_size * 0.5)
-        prev_dy_def_att = (prev_defender['y'] + map_config.pixel_size * 0.5) - (prev_attacker['y'] + map_config.pixel_size * 0.5)
-        prev_dist_def_att = math.hypot(prev_dx_def_att, prev_dy_def_att)
-
-        # 计算边界距离（到捕获半径的距离）
-        prev_boundary_dist = max(0.0, prev_dist_def_att - capture_radius)
-        curr_boundary_dist = max(0.0, curr_dist_def_att - capture_radius)
-        initial_boundary_dist = max(0.0, initial_dist_def_att - capture_radius)
-
-        if initial_boundary_dist > 0:
-            distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
-            distance_reward = distance_progress * distance_total_reward
-            reward += distance_reward
-
-    # 终止奖励 - 纯追逃：只关心 defender 捕获 attacker，忽略 target
-    if defender_captured:
-        terminated = True
-        info['reason'] = 'defender_caught_attacker'
-        info['win'] = True
-        reward += capture_reward
-    elif defender_collision:
-        terminated = True
-        reward -= collision_penalty
-        info['reason'] = 'defender_collision'
-        info['win'] = False
-    # 注意：attacker_captured (attacker到达target) 被忽略，不触发终止
-    # attacker_collision 也不影响 episode 终止，仅记录在 info 中
-
-    return float(reward), bool(terminated), False, info
-
 
 # ============================================================================
 # Academic-style rendering functions for TAD environment
@@ -1375,3 +1137,14 @@ def get_canvas_tad_matplotlib(target, defender, attacker,
         defender_traj, attacker_traj,
         fov_points=fov_points,
         collision_info=collision_info, **kwargs)
+
+
+def reset_mpl_renderer():
+    """Close and reset the matplotlib renderer (call on env.close())."""
+    global _mpl_renderer
+    if _mpl_renderer is not None:
+        _mpl_renderer.close()
+    _mpl_renderer = None
+
+
+

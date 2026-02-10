@@ -5,7 +5,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 import pygame
-import env_lib, map_config
+import env_lib, map_config, reward as reward_fn
 from map_config import EnvParameters
 
 # Initialize pygame in headless mode for Ray workers
@@ -22,7 +22,7 @@ class TADEnv(gym.Env):
     def __init__(self, spawn_outside_fov=False, reward_mode='standard'):
         super().__init__()
         self.spawn_outside_fov = bool(spawn_outside_fov)
-        self.reward_mode = reward_mode  # 'standard', 'protect', 'protect1', 'protect2', 'chase'
+        self.reward_mode = reward_mode  # 'standard', 'hrl', 'protect', 'protect1', 'protect2', 'chase'
         self.mask_flag = getattr(map_config, 'mask_flag', False)
         self.width = map_config.width
         self.height = map_config.height
@@ -393,7 +393,7 @@ class TADEnv(gym.Env):
 
         # Calculate reward based on reward_mode
         if self.reward_mode == 'protect1':
-            reward, terminated, truncated, info = env_lib.reward_calculate_protect1(
+            reward, terminated, truncated, info = reward_fn.reward_calculate_protect1(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
                 prev_attacker=self.prev_attacker_pos,
@@ -414,7 +414,7 @@ class TADEnv(gym.Env):
             elif self._collision_cooldown > 0:
                 self._collision_cooldown -= 1
         elif self.reward_mode == 'protect2':
-            reward, terminated, truncated, info = env_lib.reward_calculate_protect2(
+            reward, terminated, truncated, info = reward_fn.reward_calculate_protect2(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
                 prev_attacker=self.prev_attacker_pos,
@@ -429,7 +429,7 @@ class TADEnv(gym.Env):
                 initial_dist_def_tgt=self.initial_dist_def_tgt
             )
         elif self.reward_mode == 'chase':
-            reward, terminated, truncated, info = env_lib.reward_calculate_chase(
+            reward, terminated, truncated, info = reward_fn.reward_calculate_chase(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
                 prev_attacker=self.prev_attacker_pos,
@@ -443,8 +443,8 @@ class TADEnv(gym.Env):
                 radar=defender_radar,
                 initial_dist_def_att=self.initial_dist_def_att
             )
-        else:  # 'standard'
-            reward, terminated, truncated, info = env_lib.reward_calculate_tad(
+        elif self.reward_mode == 'hrl':
+            reward, terminated, truncated, info = reward_fn.reward_calculate_tad(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
                 prev_attacker=self.prev_attacker_pos,
@@ -456,7 +456,22 @@ class TADEnv(gym.Env):
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
                 radar=defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt
+                initial_dist_def_tgt=self.initial_dist_def_tgt,
+            )
+        else:  # 'standard'
+            reward, terminated, truncated, info = reward_fn.reward_calculate_tad(
+                self.defender, self.attacker, self.target,
+                prev_defender=self.prev_defender_pos,
+                prev_attacker=self.prev_attacker_pos,
+                defender_collision=bool(defender_blocked),
+                attacker_collision=bool(attacker_blocked),
+                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
+                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
+                capture_progress_defender=int(self._capture_counter_defender),
+                capture_progress_attacker=int(self._capture_counter_attacker),
+                capture_required_steps=int(self.capture_required_steps),
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt,
             )
 
         cur_dist_defender = float(math.hypot(self.defender['x'] - self.attacker['x'], self.defender['y'] - self.attacker['y']))
@@ -473,10 +488,10 @@ class TADEnv(gym.Env):
         self.current_obs = self._get_obs_features()
         if self.step_count >= EnvParameters.EPISODE_LEN and not terminated:
             truncated = True
-            # 超时处理：protect2 模式下超时算 defender 胜利
+            # protect2 超时按 defender 胜利并给予 +success_reward
             if self.reward_mode == 'protect2':
-                info['reason'] = 'timeout_defender_wins'
-                info['win'] = True
+                reward += float(getattr(map_config, 'success_reward', 20.0))
+            info = reward_fn.apply_timeout_defender_win(info)
 
         return self.current_obs, float(reward), bool(terminated), bool(truncated), info
 
@@ -515,10 +530,14 @@ class TADEnv(gym.Env):
         )
 
         self.step_count = 0
-        # Calculate initial distance between defender and target
+        # Calculate initial edge distance between defender and target
         dx_init = (self.defender['x'] + self.pixel_size * 0.5) - (self.target['x'] + self.pixel_size * 0.5)
         dy_init = (self.defender['y'] + self.pixel_size * 0.5) - (self.target['y'] + self.pixel_size * 0.5)
-        self.initial_dist_def_tgt = math.hypot(dx_init, dy_init)
+        init_center_dist_def_tgt = math.hypot(dx_init, dy_init)
+        target_radius = float(getattr(map_config, 'target_radius', 16.0))
+        agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+        reach_radius = target_radius + agent_radius
+        self.initial_dist_def_tgt = max(0.0, init_center_dist_def_tgt - reach_radius)
         
         # Calculate initial distance between defender and attacker (for chase reward)
         dx_def_att = (self.defender['x'] + self.pixel_size * 0.5) - (self.attacker['x'] + self.pixel_size * 0.5)

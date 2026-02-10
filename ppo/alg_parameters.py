@@ -32,7 +32,7 @@ class SetupParameters:
     EVAL_FIXED_SEED = 42           # 评估时的固定种子（当EVAL_USE_RANDOM_SEED=False时使用）
     
     # --- GPU设置 ---
-    GPU_ID = 0               # 使用的GPU序号（0或1），所有训练都在这个GPU上运行
+    GPU_ID = 1               # 使用的GPU序号（0或1），所有训练都在这个GPU上运行
     
     # 障碍物密度等级 (none, dense)
     OBSTACLE_DENSITY = ObstacleDensity.DENSE
@@ -40,7 +40,7 @@ class SetupParameters:
     # 技能模式: "chase", "protect1", "protect2"
     # protect1: 导航到target阶段 (静止对手, 到达即成功)
     # protect2: 保护target阶段 (导航对手, 任务胜负条件)
-    SKILL_MODE = "protect2"
+    SKILL_MODE = "chase"
 
 
 class TrainingParameters:
@@ -55,7 +55,7 @@ class TrainingParameters:
     # --- 训练流程设置 ---
     N_ENVS = 4               # 并行环境数量
     N_STEPS = 2048           # 每个环境采样的步数 (PPO Rollout Length)
-    N_MAX_STEPS = 0.8e7        # 最大训练总步数
+    N_MAX_STEPS = 1.5e7        # 最大训练总步数
     LOG_EPOCH_STEPS = int(1e4) # 每隔多少步记录一次日志
     
     MINIBATCH_SIZE = 64      # PPO更新的Mini-batch大小
@@ -73,7 +73,6 @@ class TrainingParameters:
     ENTROPY_COEF = 0.02      # Entropy Bonus的系数
     MAX_GRAD_NORM = 0.5      # 梯度裁剪阈值
     GAMMA = 0.95            # 折扣因子
-    REWARD_NORMALIZATION = True  # 奖励标准化（Running Return Normalization）
     REWARD_NORMALIZATION = True  # 奖励标准化（Running Return Normalization）
     LAM = 0.95               # GAE参数 lambda
     
@@ -122,8 +121,8 @@ class NetParameters:
     ACTION_DIM = 2           # 动作维度 (Angle, Speed)
     
     # MLP 参数 (用于HRL顶层的CTDE网络)
-    HIDDEN_DIM = 64         # 隐藏层维度
-    NUM_HIDDEN_LAYERS = 2    # 隐藏层层数
+    HIDDEN_DIM = 256         # 隐藏层维度
+    NUM_HIDDEN_LAYERS = 3    # 隐藏层层数
     
     # NMN (Neural Modular Network) 参数 (用于底层技能训练)
     NMN_BRANCH_DIM = 32      # 并行分支输出维度 (跟踪分支/避障分支各32)
@@ -151,7 +150,7 @@ class RecordingParameters:
     
     RETRAIN = False           # 是否继续训练 (加载权重和进度)
     FRESH_RETRAIN = False     # 仅加载模型权重，重置训练进度和学习率调度
-    RESTORE_DIR = "./models/defender_protect_dense_01-28-11-28/protect_rl_01-28-11-28/models/best_model.pth"          # 恢复模型的目录
+    RESTORE_DIR = "./models/defender_protect1_dense_02-08-18-14/best_model.pth"          # 恢复模型的目录
     
     TENSORBOARD = True        # 是否使用TensorBoard
     TXT_LOG = True            # 是否记录TXT日志

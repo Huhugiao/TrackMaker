@@ -49,7 +49,7 @@ DEFAULT_MODEL_PATHS = {
     'chase': './models/defender_chase_dense_02-02-11-00/best_model.pth',
     
     # NMN (Neural Modular Network) 新版技能模型
-    'protect1_nmn': './models/defender_protect1_dense_02-08-16-12/best_model.pth',
+    'protect1_nmn': './models/defender_protect1_dense_02-08-18-14/best_model.pth',
 }
 
 def _detect_network_type(checkpoint_path: str) -> str:
@@ -214,7 +214,7 @@ class Attackerevaluator:
 
     # 支持的策略列表
     VALID_STRATEGIES = ['default', 'aggressive', 'evasive', 'flank', 'orbit', 
-                        'attacker_global', 'static', 'random']
+                        'attacker_apf', 'attacker_global', 'static', 'random']
 
     def __init__(
         self,
@@ -232,7 +232,14 @@ class Attackerevaluator:
         attacker_speed = attacker_speed if attacker_speed is not None else map_config.attacker_speed
         attacker_max_turn = attacker_max_turn if attacker_max_turn is not None else getattr(map_config, 'attacker_max_angular_speed', 12.0)
         
-        if strategy == 'attacker_global':
+        if strategy == 'attacker_apf':
+            self.model = AttackerAPFPolicy(
+                env_width=env_width,
+                env_height=env_height,
+                attacker_speed=attacker_speed,
+                attacker_max_turn=attacker_max_turn,
+            )
+        elif strategy == 'attacker_global':
             self.model = AttackerGlobalPolicy(
                 env_width=env_width,
                 env_height=env_height,
@@ -460,7 +467,7 @@ def run_evaluation(
     # Save GIF/PNG
     gif_out = None
     if save_gif and episode_frames:
-        from util import make_gif
+        from util import make_gif, make_trajectory_plot
         if not gif_path: gif_path = f"./output/{defender_strategy}_vs_{attacker_strategy}.gif"
         
         # Ensure dir
@@ -470,7 +477,7 @@ def run_evaluation(
         for idx, reason, frames in episode_frames:
             # Save GIF with high quality
             p = gif_path.replace('.gif', f'_ep{idx}_{reason}.gif')
-            make_gif(frames, p, fps=20)
+            make_gif(frames, p, fps=20, quality='high')
             saved_count += 1
         print(f"  [GIF] Saved {saved_count} gifs")
         gif_out = gif_path
@@ -661,6 +668,8 @@ def main():
     parser.add_argument('--checkpoint', type=str, default=None, help="模型检查点路径")
     parser.add_argument('--network-type', type=str, default=None, choices=['nmn', 'mlp'],
                         help="网络类型: nmn (神经模块网络) 或 mlp (多层感知机)，不指定则自动检测")
+    parser.add_argument('--save-stats', action='store_true', help="保存评估统计JSON")
+    parser.add_argument('--stats-path', type=str, default=None, help="统计JSON输出路径")
     
     args = parser.parse_args()
     
@@ -678,14 +687,23 @@ def main():
         if not ckpt and args.defender in DEFAULT_MODEL_PATHS:
             ckpt = DEFAULT_MODEL_PATHS[args.defender]
             
-        run_evaluation(
+        metrics, _ = run_evaluation(
             defender_strategy=args.defender,
             attacker_strategy=args.attacker,
             num_episodes=args.episodes,
             defender_checkpoint=ckpt,
             save_gif=True if args.gif else False,
             gif_episodes=10 if args.gif else 0,
+            save_stats=args.save_stats,
+            stats_path=args.stats_path,
             network_type=args.network_type
+        )
+        print(
+            f"[EVAL RESULT] success={metrics['success_rate']:.3f}, "
+            f"d_cap={metrics['defender_capture_rate']:.3f}, "
+            f"a_cap={metrics['attacker_capture_rate']:.3f}, "
+            f"mean_len={metrics['mean_episode_length']:.1f}, "
+            f"mean_reward={metrics['mean_reward']:.3f}"
         )
     else:
         # 默认进入交互式界面
