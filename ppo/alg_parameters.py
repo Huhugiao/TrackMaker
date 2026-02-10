@@ -58,7 +58,7 @@ class TrainingParameters:
     N_MAX_STEPS = 1.5e7        # 最大训练总步数
     LOG_EPOCH_STEPS = int(1e4) # 每隔多少步记录一次日志
     
-    MINIBATCH_SIZE = 64      # PPO更新的Mini-batch大小
+    MINIBATCH_SIZE = 4096    # PPO更新的Mini-batch大小
     N_EPOCHS_INITIAL = 10    # N_EPOCHS 初始值
     N_EPOCHS_FINAL = 10      # N_EPOCHS 最终值 (线性衰减)
     

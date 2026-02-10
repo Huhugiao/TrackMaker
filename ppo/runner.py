@@ -3,6 +3,7 @@ TAD PPO Runner - Ray分布式采样Worker
 """
 
 import os
+import time
 import ray
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional
@@ -228,9 +229,9 @@ class Runner:
         self.local_network.load_state_dict(state_dict)
         self.local_network.eval()
     
-    def run(self, num_steps: int) -> Dict[str, np.ndarray]:
+    def run(self, num_steps: int, profile: bool = False) -> Dict[str, np.ndarray]:
         import torch
-        
+
         mb_obs = []
         mb_critic_obs = []
         mb_actions = []
@@ -239,53 +240,99 @@ class Runner:
         mb_rewards = []
         mb_dones = []
         mb_expert_actions = []
-        
+
         perf = {'per_r': [], 'per_episode_len': [], 'win': []}
-        
+
+        timings = None
+        profiled_keys = (
+            'critic_obs', 'tensorize', 'policy_inference', 'expert_policy',
+            'opponent_policy', 'env_step', 'reward_norm', 'buffer_ops',
+            'episode_reset', 'bootstrap_value', 'gae_compute', 'pack_numpy'
+        )
+        if profile:
+            timings = {k: 0.0 for k in profiled_keys}
+            rollout_start = time.perf_counter()
+            finished_episodes = 0
+
         for _ in range(num_steps):
+            if profile:
+                t0 = time.perf_counter()
             critic_obs = build_critic_observation(self.defender_obs, self.attacker_obs)
-            
+            if profile:
+                timings['critic_obs'] += time.perf_counter() - t0
+
+            if profile:
+                t0 = time.perf_counter()
             obs_t = torch.tensor(self.defender_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
             critic_obs_t = torch.tensor(critic_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
-            
+            if profile:
+                timings['tensorize'] += time.perf_counter() - t0
+
+            if profile:
+                t0 = time.perf_counter()
             with torch.no_grad():
                 actions, log_probs, pre_tanh, values = self.local_network.act(obs_t, critic_obs_t)
+            if profile:
+                timings['policy_inference'] += time.perf_counter() - t0
+
+            if profile:
+                t0 = time.perf_counter()
             tanh_action = actions.cpu().numpy().flatten()
             pre_tanh_action = pre_tanh.cpu().numpy().flatten()
             log_prob = log_probs.cpu().numpy().item()
             value = values.cpu().numpy().item()
-            
             mb_obs.append(self.defender_obs.copy())
             mb_critic_obs.append(critic_obs.copy())
             mb_actions.append(pre_tanh_action)
             mb_log_probs.append(log_prob)
             mb_values.append(value)
-            
-            # Get expert action for IL
-            priv_state = self.env.get_privileged_state()
-            expert_action = self.expert_policy.get_action(self.defender_obs, priv_state)
+            if profile:
+                timings['buffer_ops'] += time.perf_counter() - t0
+
+            # Get expert action for IL (skip in pure rl mode)
+            if profile:
+                t0 = time.perf_counter()
+            if TrainingParameters.TRAINING_MODE != 'rl':
+                priv_state = self.env.get_privileged_state()
+                expert_action = self.expert_policy.get_action(self.defender_obs, priv_state)
+            else:
+                expert_action = np.zeros(NetParameters.ACTION_DIM, dtype=np.float32)
             mb_expert_actions.append(expert_action)
-            
+            if profile:
+                timings['expert_policy'] += time.perf_counter() - t0
+
             # Get attacker action
+            if profile:
+                t0 = time.perf_counter()
             attacker_action = self.attacker_policy.get_action(self.attacker_obs)
-            
+            if profile:
+                timings['opponent_policy'] += time.perf_counter() - t0
+
             # Step environment
+            if profile:
+                t0 = time.perf_counter()
             obs, reward, terminated, truncated, info = self.env.step(tanh_action, attacker_action)
+            if profile:
+                timings['env_step'] += time.perf_counter() - t0
             done = terminated or truncated
-            
+
             self.defender_obs, self.attacker_obs = obs
             self.done = done
             self.episode_reward += reward
             self.episode_len += 1
-            
+
             # 奖励标准化: reward / sqrt(running_var(G_t))
+            if profile:
+                t0 = time.perf_counter()
             if self.reward_normalizer is not None:
                 norm_reward = self.reward_normalizer.update(reward, done)
             else:
                 norm_reward = reward
+            if profile:
+                timings['reward_norm'] += time.perf_counter() - t0
             mb_rewards.append(norm_reward)
             mb_dones.append(done)
-            
+
             if done:
                 one_ep = {
                     'episode_reward': self.episode_reward,
@@ -294,14 +341,25 @@ class Runner:
                 }
                 update_perf(one_ep, perf)
                 perf['win'].append(one_ep['win'])
+                if profile:
+                    t0 = time.perf_counter()
                 self._reset()
-        
+                if profile:
+                    timings['episode_reset'] += time.perf_counter() - t0
+                    finished_episodes += 1
+
+        if profile:
+            t0 = time.perf_counter()
         last_critic_obs = build_critic_observation(self.defender_obs, self.attacker_obs)
         obs_t = torch.tensor(self.defender_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         critic_obs_t = torch.tensor(last_critic_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             last_value = self.local_network.critic_value(critic_obs_t).cpu().numpy().item()
-        
+        if profile:
+            timings['bootstrap_value'] += time.perf_counter() - t0
+
+        if profile:
+            t0 = time.perf_counter()
         mb_obs = np.array(mb_obs, dtype=np.float32)
         mb_critic_obs = np.array(mb_critic_obs, dtype=np.float32)
         mb_actions = np.array(mb_actions, dtype=np.float32)
@@ -310,11 +368,15 @@ class Runner:
         mb_rewards = np.array(mb_rewards, dtype=np.float32)
         mb_dones = np.array(mb_dones, dtype=np.float32)
         mb_expert_actions = np.array(mb_expert_actions, dtype=np.float32)
-        
+        if profile:
+            timings['pack_numpy'] += time.perf_counter() - t0
+
         mb_advs = np.zeros_like(mb_rewards)
         mb_returns = np.zeros_like(mb_rewards)
         lastgaelam = 0.0
-        
+
+        if profile:
+            t0 = time.perf_counter()
         for t in reversed(range(num_steps)):
             if t == num_steps - 1:
                 next_value = last_value
@@ -325,10 +387,12 @@ class Runner:
             delta = mb_rewards[t] + TrainingParameters.GAMMA * next_value * (1.0 - done_t) - mb_values[t]
             lastgaelam = delta + TrainingParameters.GAMMA * TrainingParameters.LAM * (1.0 - done_t) * lastgaelam
             mb_advs[t] = lastgaelam
-        
+        if profile:
+            timings['gae_compute'] += time.perf_counter() - t0
+
         mb_returns = mb_advs + mb_values
-        
-        return {
+
+        ret = {
             'obs': mb_obs,
             'critic_obs': mb_critic_obs,
             'actions': mb_actions,
@@ -340,7 +404,16 @@ class Runner:
             'expert_actions': mb_expert_actions,
             'perf': perf
         }
-    
+        if profile:
+            profiled_total = sum(timings[k] for k in profiled_keys)
+            timings['profiled_total'] = profiled_total
+            timings['rollout_total'] = time.perf_counter() - rollout_start
+            timings['untracked'] = max(0.0, timings['rollout_total'] - profiled_total)
+            timings['num_steps'] = float(num_steps)
+            timings['finished_episodes'] = float(finished_episodes)
+            ret['timings'] = timings
+        return ret
+
     def imitation(self, num_steps: int) -> Dict[str, np.ndarray]:
         import torch
         from rule_policies import DefenderAPFPolicy

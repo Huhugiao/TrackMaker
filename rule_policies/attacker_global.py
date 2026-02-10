@@ -48,6 +48,35 @@ STRATEGY_CONFIGS = {
 ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
 
 
+# ---- Precomputed padded obstacle grid (class-level, built once) ----
+_STATIC_GRID = None          # np.ndarray bool, shape (ny, nx)
+_STATIC_GRID_CELL = None     # float
+_STATIC_GRID_NX = 0
+_STATIC_GRID_NY = 0
+
+def _ensure_static_grid(grid_size: float, padding: float, env_width: float, env_height: float):
+    """Build a padded boolean grid once; subsequent calls are no-ops."""
+    global _STATIC_GRID, _STATIC_GRID_CELL, _STATIC_GRID_NX, _STATIC_GRID_NY
+    if _STATIC_GRID is not None and _STATIC_GRID_CELL == grid_size:
+        return
+    # Ensure obstacle arrays are compiled (build_occupancy must have been called)
+    if not getattr(env_lib, '_OBS_COMPILED', False):
+        env_lib.build_occupancy()
+    nx = int(math.ceil(env_width / grid_size))
+    ny = int(math.ceil(env_height / grid_size))
+    grid = np.zeros((ny, nx), dtype=np.bool_)
+    for iy in range(ny):
+        cy = iy * grid_size + grid_size * 0.5
+        for ix in range(nx):
+            cx = ix * grid_size + grid_size * 0.5
+            if env_lib.is_point_blocked(cx, cy, padding=padding):
+                grid[iy, ix] = True
+    _STATIC_GRID = grid
+    _STATIC_GRID_CELL = grid_size
+    _STATIC_GRID_NX = nx
+    _STATIC_GRID_NY = ny
+
+
 class AttackerGlobalPolicy:
     """
     Attacker全局路径规划策略
@@ -124,6 +153,13 @@ class AttackerGlobalPolicy:
         
         self._apply_strategy_config()
 
+        # Build static obstacle grid once (shared across all instances)
+        _ensure_static_grid(self.grid_size, self.obstacle_padding,
+                            self.env_width, self.env_height)
+        self._grid = _STATIC_GRID
+        self._grid_nx = _STATIC_GRID_NX
+        self._grid_ny = _STATIC_GRID_NY
+
     def _apply_strategy_config(self):
         """根据策略调整初始参数"""
         self.defender_avoid_radius = self.base_defender_avoid_radius * self.response_intensity
@@ -150,6 +186,7 @@ class AttackerGlobalPolicy:
         self.path = []
         self.current_path_index = 0
         self.last_planned_pos = None
+        self.last_defender_pos = None
         self.step_count = 0
         self.orbit_angle = 0.0
         self.orbit_attacking = False
@@ -270,12 +307,26 @@ class AttackerGlobalPolicy:
     def plan_path(self, start_pos: np.ndarray, goal_pos: np.ndarray, defender_pos: np.ndarray = None) -> List[np.ndarray]:
         """
         使用A*算法规划从起点到终点的路径
+        优化: 使用预计算的静态障碍物网格进行 O(1) 碰撞检测
         """
-        # 将连续坐标转换为网格坐标
-        start_grid = (int(start_pos[0] / self.grid_size), int(start_pos[1] / self.grid_size))
-        goal_grid = (int(goal_pos[0] / self.grid_size), int(goal_pos[1] / self.grid_size))
+        gs = self.grid_size
+        grid = self._grid
+        gnx = self._grid_nx
+        gny = self._grid_ny
 
-        # A*算法
+        start_grid = (int(start_pos[0] / gs), int(start_pos[1] / gs))
+        goal_grid = (int(goal_pos[0] / gs), int(goal_pos[1] / gs))
+
+        # Defender avoidance: precompute grid-coord range
+        avoid_r2 = 0.0
+        def_gx = 0.0
+        def_gy = 0.0
+        has_defender = defender_pos is not None and self.defender_avoid_radius > 0
+        if has_defender:
+            avoid_r2 = self.defender_avoid_radius * self.defender_avoid_radius
+            def_gx = defender_pos[0]
+            def_gy = defender_pos[1]
+
         open_set = []
         heapq.heappush(open_set, (0, start_grid))
         came_from = {}
@@ -283,6 +334,7 @@ class AttackerGlobalPolicy:
 
         max_steps = 2000
         steps = 0
+        half_gs = gs * 0.5
 
         while open_set:
             steps += 1
@@ -292,68 +344,61 @@ class AttackerGlobalPolicy:
             current_cost, current = heapq.heappop(open_set)
 
             if current == goal_grid:
-                # 重建路径
                 path = []
                 while current in came_from:
-                    # 将网格坐标转换回连续坐标
                     pos = np.array([
-                        current[0] * self.grid_size + self.grid_size / 2,
-                        current[1] * self.grid_size + self.grid_size / 2
+                        current[0] * gs + half_gs,
+                        current[1] * gs + half_gs
                     ], dtype=np.float32)
                     path.append(pos)
                     current = came_from[current]
-                # 添加起点
                 start_pos_continuous = np.array([
-                    start_grid[0] * self.grid_size + self.grid_size / 2,
-                    start_grid[1] * self.grid_size + self.grid_size / 2
+                    start_grid[0] * gs + half_gs,
+                    start_grid[1] * gs + half_gs
                 ], dtype=np.float32)
                 path.append(start_pos_continuous)
                 path.reverse()
-                # 确保终点是实际的目标位置
                 path[-1] = goal_pos.copy()
                 return path
 
-            # 8方向移动
-            neighbors = [
-                (current[0] + 1, current[1]),
-                (current[0] - 1, current[1]),
-                (current[0], current[1] + 1),
-                (current[0], current[1] - 1),
-                (current[0] + 1, current[1] + 1),
-                (current[0] + 1, current[1] - 1),
-                (current[0] - 1, current[1] + 1),
-                (current[0] - 1, current[1] - 1),
-            ]
-
-            for neighbor in neighbors:
-                # 检查边界
-                if (neighbor[0] < 0 or neighbor[0] >= self.env_width / self.grid_size or
-                    neighbor[1] < 0 or neighbor[1] >= self.env_height / self.grid_size):
+            cx0, cy0 = current
+            for dx in (-1, 0, 1):
+                nx_ = cx0 + dx
+                if nx_ < 0 or nx_ >= gnx:
                     continue
+                for dy in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    ny_ = cy0 + dy
+                    if ny_ < 0 or ny_ >= gny:
+                        continue
 
-                # 检查障碍物
-                neighbor_pos = np.array([
-                    neighbor[0] * self.grid_size + self.grid_size / 2,
-                    neighbor[1] * self.grid_size + self.grid_size / 2
-                ], dtype=np.float32)
+                    # O(1) static obstacle check via precomputed grid
+                    if grid[ny_, nx_]:
+                        continue
 
-                if self.is_pos_blocked(neighbor_pos[0], neighbor_pos[1], defender_pos):
-                    continue
+                    # Dynamic defender avoidance
+                    if has_defender:
+                        px = nx_ * gs + half_gs
+                        py = ny_ * gs + half_gs
+                        ddx = px - def_gx
+                        ddy = py - def_gy
+                        if ddx * ddx + ddy * ddy < avoid_r2:
+                            continue
 
-                # 计算新的g值
-                move_cost = 1.414 if (neighbor[0] != current[0] and neighbor[1] != current[1]) else 1.0
-                tentative_g_score = g_score[current] + move_cost
+                    neighbor = (nx_, ny_)
+                    move_cost = 1.414 if (dx != 0 and dy != 0) else 1.0
+                    tentative_g = g_score[current] + move_cost
 
-                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
-                    came_from[neighbor] = current
-                    g_score[neighbor] = tentative_g_score
-                    f_score = tentative_g_score + math.hypot(
-                        neighbor[0] - goal_grid[0],
-                        neighbor[1] - goal_grid[1]
-                    )
-                    heapq.heappush(open_set, (f_score, neighbor))
+                    if neighbor not in g_score or tentative_g < g_score[neighbor]:
+                        came_from[neighbor] = current
+                        g_score[neighbor] = tentative_g
+                        f_score = tentative_g + math.hypot(
+                            nx_ - goal_grid[0],
+                            ny_ - goal_grid[1]
+                        )
+                        heapq.heappush(open_set, (f_score, neighbor))
 
-        # 如果没有找到路径，返回直接路径（让attacker尝试穿越）
         return [start_pos.copy(), goal_pos.copy()]
 
     def _get_flank_target(self, attacker_pos, defender_pos, target_pos):
@@ -464,7 +509,13 @@ class AttackerGlobalPolicy:
         elif np.linalg.norm(attacker_pos - self.last_planned_pos) > self.grid_size * 2:
             need_replan = True
         elif self.step_count % self.replan_interval == 0:
-            need_replan = True
+            # Only replan on timer if defender moved significantly since last plan
+            if self.last_defender_pos is None:
+                need_replan = True
+            else:
+                defender_moved = np.linalg.norm(defender_pos - self.last_defender_pos)
+                if defender_moved > self.grid_size:
+                    need_replan = True
 
         if need_replan:
             # 多级避让策略
@@ -510,6 +561,7 @@ class AttackerGlobalPolicy:
             self.defender_avoid_radius = original_radius
             self.current_path_index = 0
             self.last_planned_pos = attacker_pos.copy()
+            self.last_defender_pos = defender_pos.copy()
 
         # 3. 寻找当前路径点
         if len(self.path) > 0:
