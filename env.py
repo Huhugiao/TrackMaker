@@ -670,7 +670,7 @@ class TADEnv(gym.Env):
             
             # 时间优势约束: dist(T,A) * defender_speed > dist(T,D) * attacker_speed
             # Defender 有足够时间拦截 Attacker
-            if dist_to_attacker * defender_speed > dist_to_defender * attacker_speed:
+            if dist_to_attacker * defender_speed > 0.85 * dist_to_defender * attacker_speed:
                 return {'x': x, 'y': y, 'theta': 0.0}
 
         # Fallback: 生成在Defender附近但远离Attacker的位置

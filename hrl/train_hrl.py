@@ -5,6 +5,7 @@ HRL Top Level Training
 """
 
 import glob
+import math
 import os
 import sys
 import time
@@ -14,7 +15,7 @@ from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ppo.alg_parameters import SetupParameters, TrainingParameters, RecordingParameters
+from ppo.alg_parameters import SetupParameters, TrainingParameters, RecordingParameters, NetParameters
 from ppo.model import Model
 from ppo.util import (
     set_global_seeds,
@@ -29,11 +30,54 @@ from ppo.util import (
     get_ray_temp_dir,
 )
 from hrl.hrl_runner import HRLRunner
+from hrl.hrl_train_parameters import (
+    HRLSetupParameters,
+    HRLTrainingParameters,
+    HRLRecordingParameters,
+    HRLEnvTrainParameters,
+)
+from map_config import EnvParameters
 
 
-SetupParameters.SKILL_MODE = 'hrl'
+SetupParameters.SKILL_MODE = HRLSetupParameters.SKILL_MODE
+SetupParameters.GPU_ID = int(HRLSetupParameters.GPU_ID)
 RecordingParameters.MODEL_PATH = f"models/hrl_{datetime.now().strftime('%m-%d-%H-%M')}"
 RecordingParameters.SUMMARY_PATH = f"models/hrl_{datetime.now().strftime('%m-%d-%H-%M')}/summary"
+
+
+def _apply_hrl_parameter_overrides():
+    """将HRL独立超参同步到通用参数类，避免复用底层技能配置。"""
+    for key, value in HRLTrainingParameters.__dict__.items():
+        if key.startswith('_'):
+            continue
+        setattr(TrainingParameters, key, value)
+
+    for key, value in HRLRecordingParameters.__dict__.items():
+        if key.startswith('_'):
+            continue
+        setattr(RecordingParameters, key, value)
+
+    NetParameters.CONTEXT_WINDOW = int(HRLTrainingParameters.TBPTT_STEPS)
+    NetParameters.CONTEXT_LEN = int(HRLTrainingParameters.TBPTT_STEPS)
+
+
+def _scheduled_lr(current_step: int, total_steps: int) -> float:
+    """根据HRL训练配置计算当前学习率。"""
+    lr_init = float(HRLTrainingParameters.lr)
+    lr_final = float(HRLTrainingParameters.LR_FINAL)
+    schedule = str(HRLTrainingParameters.LR_SCHEDULE).lower()
+    if total_steps <= 0:
+        return lr_init
+
+    progress = min(max(float(current_step) / float(total_steps), 0.0), 1.0)
+    if schedule == 'constant':
+        return lr_init
+    if schedule == 'linear':
+        return lr_init + (lr_final - lr_init) * progress
+    if schedule == 'cosine':
+        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return lr_final + (lr_init - lr_final) * cosine_decay
+    raise ValueError(f'Unsupported LR_SCHEDULE: {HRLTrainingParameters.LR_SCHEDULE}')
 
 
 def _find_latest_checkpoint(model_prefixes):
@@ -66,8 +110,10 @@ def _resolve_skill_paths():
 
 
 def main():
+    _apply_hrl_parameter_overrides()
     set_global_seeds(SetupParameters.SEED)
     print_device_info()
+    EnvParameters.EPISODE_LEN = int(HRLEnvTrainParameters.EPISODE_LEN)
 
     timestamp = datetime.now().strftime('%m-%d-%H-%M')
     run_name = f"HRL_TopLevel_{timestamp}"
@@ -99,6 +145,9 @@ def main():
     print(f'Num Runners: {n_envs}')
     print(f'Protect Skill: {protect_model_path}')
     print(f'Chase Skill:   {chase_model_path}')
+    print(f'LR Schedule: {HRLTrainingParameters.LR_SCHEDULE} ({HRLTrainingParameters.lr} -> {HRLTrainingParameters.LR_FINAL})')
+    print(f'Episode Max Steps: {EnvParameters.EPISODE_LEN}')
+    print(f'Macro Length Range: [{HRLEnvTrainParameters.HOLD_MIN}, {HRLEnvTrainParameters.HOLD_MAX}]')
     print(f'GIF Interval: {RecordingParameters.GIF_INTERVAL:,} steps')
     print(f'TRAJ Interval: {RecordingParameters.TRAJ_INTERVAL:,} steps')
     print('=' * 72)
@@ -114,14 +163,19 @@ def main():
     model = Model(device=device, global_model=True, network_type='hrl_top')
 
     env_cfg = {
-        'attacker_strategy': 'random',
+        'episode_len': HRLEnvTrainParameters.EPISODE_LEN,
+        'attacker_strategy': HRLEnvTrainParameters.ATTACKER_STRATEGY,
         'protect_model_path': protect_model_path,
         'chase_model_path': chase_model_path,
-        'predictor_hidden_dim': 64,
-        'predictor_lr': 1e-3,
-        'predictor_train': True,
-        'hold_min': 3,
-        'hold_max': 15,
+        'predictor_hidden_dim': HRLEnvTrainParameters.PREDICTOR_HIDDEN_DIM,
+        'predictor_lr': HRLEnvTrainParameters.PREDICTOR_LR,
+        'predictor_train': HRLEnvTrainParameters.PREDICTOR_TRAIN,
+        'hold_min': HRLEnvTrainParameters.HOLD_MIN,
+        'hold_max': HRLEnvTrainParameters.HOLD_MAX,
+        'disable_hold_control': HRLEnvTrainParameters.DISABLE_HOLD_CONTROL,
+        'gamma': HRLTrainingParameters.GAMMA,
+        'lam': HRLTrainingParameters.LAM,
+        'reward_normalization': HRLTrainingParameters.REWARD_NORMALIZATION,
     }
     runners = [HRLRunner.remote(i, env_configs=env_cfg) for i in range(n_envs)]
 
@@ -133,6 +187,10 @@ def main():
     start_time = time.time()
 
     for update in range(1, total_updates + 1):
+        current_lr = _scheduled_lr(global_step, int(TrainingParameters.N_MAX_STEPS))
+        model.update_learning_rate(current_lr)
+        model.current_lr = current_lr
+
         weights = model.get_weights()
         weight_id = ray.put(weights)
         ray.get([r.set_weights.remote(weight_id) for r in runners])
@@ -140,15 +198,11 @@ def main():
         rollouts = ray.get([r.run.remote(TrainingParameters.N_STEPS) for r in runners])
 
         all_perf = {'per_r': [], 'per_episode_len': [], 'win': []}
-        rollout_pred_losses = []
-        rollout_macro_lens = []
         for rollout in rollouts:
             perf = rollout['perf']
             all_perf['per_r'].extend(perf['per_r'])
             all_perf['per_episode_len'].extend(perf['per_episode_len'])
             all_perf['win'].extend(perf['win'])
-            rollout_pred_losses.append(float(rollout.get('predictor_loss', 0.0)))
-            rollout_macro_lens.append(float(rollout.get('macro_len_mean', 0.0)))
 
         obs_all = np.concatenate([r['obs'] for r in rollouts], axis=0)
         critic_obs_all = np.concatenate([r['critic_obs'] for r in rollouts], axis=0)
@@ -175,9 +229,8 @@ def main():
         if should_log:
             mean_reward = np.mean(all_perf['per_r']) if all_perf['per_r'] else 0.0
             win_rate = np.mean(all_perf['win']) if all_perf['win'] else 0.0
-            pred_loss = float(np.mean(rollout_pred_losses)) if rollout_pred_losses else 0.0
-            macro_len = float(np.mean(rollout_macro_lens)) if rollout_macro_lens else 0.0
-            print(f'Step {global_step:,} | Reward: {mean_reward:.2f} | Win: {win_rate:.2%} | PredLoss: {pred_loss:.4f} | MacroLen: {macro_len:.2f}')
+            mean_ep_len = np.mean(all_perf['per_episode_len']) if all_perf['per_episode_len'] else 0.0
+            print(f'Step {global_step:,} | LR: {model.current_lr:.2e} | Reward: {mean_reward:.2f} | Win: {win_rate:.2%} | EpLen: {mean_ep_len:.1f}')
 
             write_to_tensorboard(
                 summary_writer,
@@ -187,9 +240,6 @@ def main():
                 imitation_loss=None,
                 evaluate=False,
             )
-            if summary_writer is not None:
-                summary_writer.add_scalar('Train/Predictor_Loss', pred_loss, global_step)
-                summary_writer.add_scalar('Train/Macro_Length', macro_len, global_step)
 
         should_eval = (global_step // RecordingParameters.EVAL_INTERVAL) > (
             (global_step - steps_this_update) // RecordingParameters.EVAL_INTERVAL
@@ -209,9 +259,8 @@ def main():
             eval_perf = eval_result['perf']
             eval_reward = np.mean(eval_perf['per_r']) if eval_perf['per_r'] else 0.0
             eval_win = np.mean(eval_perf['win']) if eval_perf['win'] else 0.0
-            eval_pred_loss = float(eval_result.get('predictor_loss', 0.0))
-            eval_macro_len = float(eval_result.get('macro_len_mean', 0.0))
-            print(f'Eval Reward: {eval_reward:.2f} | Win: {eval_win:.2%} | PredLoss: {eval_pred_loss:.4f} | MacroLen: {eval_macro_len:.2f}')
+            eval_ep_len = np.mean(eval_perf['per_episode_len']) if eval_perf['per_episode_len'] else 0.0
+            print(f'Eval Reward: {eval_reward:.2f} | Win: {eval_win:.2%} | EpLen: {eval_ep_len:.1f}')
 
             write_to_tensorboard(
                 summary_writer,
@@ -220,9 +269,6 @@ def main():
                 evaluate=True,
                 greedy=True,
             )
-            if summary_writer is not None:
-                summary_writer.add_scalar('Eval/Predictor_Loss', eval_pred_loss, global_step)
-                summary_writer.add_scalar('Eval/Macro_Length', eval_macro_len, global_step)
 
             if eval_result.get('frames'):
                 gif_path = os.path.join(gif_dir, f'eval_{global_step}.gif')

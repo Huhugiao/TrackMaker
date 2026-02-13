@@ -4,10 +4,9 @@ Attacker Global Pathfinding Policy
 Strategy: 使用全局障碍物信息进行路径规划，直接导航到Target
 支持多种策略模式:
 - 'default': 默认模式，A*寻路 + 适度避开Defender
-- 'aggressive': 激进模式，直冲目标，无视Defender
 - 'evasive': 规避模式，最大化与Defender距离并避开其视野
-- 'flank': 侧翼包抄，绕行到Target侧翼进攻
 - 'orbit': 轨道等待，绕Target运动寻找最佳进攻时机
+- 'switch_random': 在3种核心策略中按随机周期切换
 
 Observation (72维):
 - obs[0]: Attacker 全局 X 坐标（归一化）
@@ -26,6 +25,7 @@ Action: [angle_delta, speed_normalized]
 import numpy as np
 import math
 import heapq
+import random
 from typing import Tuple, List, Optional
 import map_config
 import env_lib
@@ -38,14 +38,14 @@ DEFENDER_VIEW_DISTANCE = 250.0  # Defender视野距离
 DEFENDER_VIEW_ANGLE = 360.0     # Defender视野角度（360°全向）
 
 STRATEGY_CONFIGS = {
-    'default':   {'response': 0.6, 'speed_mult': 1.0, 'avoid_view': False},
-    'aggressive':{'response': 0.0, 'speed_mult': 1.0, 'avoid_view': False},
+    'default':   {'response': 0.9, 'speed_mult': 1.0, 'avoid_view': False},
     'evasive':   {'response': 1.5, 'speed_mult': 0.75, 'avoid_view': True},
-    'flank':     {'response': 0.7, 'speed_mult': 0.95, 'avoid_view': False},
     'orbit':     {'response': 0.8, 'speed_mult': 0.85, 'avoid_view': False},
 }
 
-ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
+ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())  # 核心策略集合（用于random采样）
+SWITCH_STRATEGIES = ['switch_random']
+SUPPORTED_STRATEGIES = ALL_STRATEGIES + SWITCH_STRATEGIES
 
 
 # ---- Precomputed padded obstacle grid (class-level, built once) ----
@@ -111,7 +111,7 @@ class AttackerGlobalPolicy:
             defender_avoid_radius: 规避defender的安全半径
             defender_view_distance: defender视野距离
             defender_view_angle: defender视野角度
-            strategy: 策略名称 ('default', 'aggressive', 'evasive', 'flank', 'orbit')
+            strategy: 策略名称 ('default', 'evasive', 'orbit', 'switch_random')
             strategy_params: 策略参数字典
         """
         self.env_width = env_width
@@ -127,8 +127,21 @@ class AttackerGlobalPolicy:
         self.defender_avoid_radius = defender_avoid_radius
         self.defender_view_distance = defender_view_distance
         self.defender_view_angle = defender_view_angle
-        self.strategy = strategy
         self.strategy_params = strategy_params or {}
+        if strategy not in SUPPORTED_STRATEGIES:
+            raise ValueError(f'Unsupported attacker strategy: {strategy}. Valid={SUPPORTED_STRATEGIES}')
+
+        # strategy_mode表示用户输入；strategy表示当前激活的核心策略
+        self.strategy_mode = strategy
+        self.dynamic_switch = strategy in SWITCH_STRATEGIES
+        self.switch_min_period = int(self.strategy_params.get('switch_min_period', 40))
+        self.switch_max_period = int(self.strategy_params.get('switch_max_period', 120))
+        self._steps_until_switch = None
+        if self.dynamic_switch:
+            self.strategy = random.choice(ALL_STRATEGIES)
+            self._steps_until_switch = self._sample_switch_period()
+        else:
+            self.strategy = strategy
 
         # 路径规划相关
         self.path = []
@@ -141,12 +154,8 @@ class AttackerGlobalPolicy:
         self.orbit_angle = 0.0
         self.orbit_attacking = False
         
-        # Flank state
-        self.flank_waypoint = None
-        self.flank_reached = False
-        
         # Speed multiplier from config
-        cfg = STRATEGY_CONFIGS.get(strategy, STRATEGY_CONFIGS['default'])
+        cfg = STRATEGY_CONFIGS.get(self.strategy, STRATEGY_CONFIGS['default'])
         self.speed_mult = cfg.get('speed_mult', 1.0)
         self.response_intensity = cfg.get('response', 0.6)
         self.avoid_view = cfg.get('avoid_view', False)
@@ -163,23 +172,49 @@ class AttackerGlobalPolicy:
     def _apply_strategy_config(self):
         """根据策略调整初始参数"""
         self.defender_avoid_radius = self.base_defender_avoid_radius * self.response_intensity
-        
-        if self.strategy == 'aggressive':
-            self.defender_avoid_radius = 0.0
-            self.replan_interval = 8
-        elif self.strategy == 'evasive':
+        self.replan_interval = 20
+
+        if self.strategy == 'evasive':
             self.defender_avoid_radius = self.base_defender_avoid_radius * 2.0
             self.replan_interval = 10
-        elif self.strategy == 'flank':
-            # 使用defender视野角度计算侧翼偏移量（默认为视野角度的一半）
-            flank_angle_deg = self.defender_view_angle / 2
-            self.flank_offset = self.strategy_params.get('offset', flank_angle_deg)
-            self.replan_interval = 15
         elif self.strategy == 'orbit':
             self.orbit_radius = self.strategy_params.get('radius', 100.0)
             self.orbit_speed = self.strategy_params.get('orbit_speed', 0.03)
             self.orbit_attack_threshold = self.strategy_params.get('attack_threshold', 150.0)
             self.replan_interval = 5
+
+    def _sample_switch_period(self) -> int:
+        """采样下一次策略切换间隔。"""
+        low = max(1, min(self.switch_min_period, self.switch_max_period))
+        high = max(low, self.switch_min_period, self.switch_max_period)
+        return random.randint(low, high)
+
+    def _switch_strategy_if_needed(self):
+        """按周期在核心策略中切换。"""
+        if not self.dynamic_switch:
+            return
+        self._steps_until_switch -= 1
+        if self._steps_until_switch > 0:
+            return
+
+        candidates = [s for s in ALL_STRATEGIES if s != self.strategy]
+        if candidates:
+            self.strategy = random.choice(candidates)
+
+        cfg = STRATEGY_CONFIGS.get(self.strategy, STRATEGY_CONFIGS['default'])
+        self.speed_mult = cfg.get('speed_mult', 1.0)
+        self.response_intensity = cfg.get('response', 0.6)
+        self.avoid_view = cfg.get('avoid_view', False)
+
+        # 切换策略后重置局部状态，避免沿用旧策略轨迹。
+        self.path = []
+        self.current_path_index = 0
+        self.last_planned_pos = None
+        self.last_defender_pos = None
+        self.orbit_angle = 0.0
+        self.orbit_attacking = False
+        self._apply_strategy_config()
+        self._steps_until_switch = self._sample_switch_period()
 
     def reset(self):
         """重置策略状态"""
@@ -190,9 +225,15 @@ class AttackerGlobalPolicy:
         self.step_count = 0
         self.orbit_angle = 0.0
         self.orbit_attacking = False
-        self.flank_waypoint = None
-        self.flank_reached = False
-        
+
+        if self.dynamic_switch:
+            self.strategy = random.choice(ALL_STRATEGIES)
+            self._steps_until_switch = self._sample_switch_period()
+
+        cfg = STRATEGY_CONFIGS.get(self.strategy, STRATEGY_CONFIGS['default'])
+        self.speed_mult = cfg.get('speed_mult', 1.0)
+        self.response_intensity = cfg.get('response', 0.6)
+        self.avoid_view = cfg.get('avoid_view', False)
         self._apply_strategy_config()
 
     def denormalize_pos(self, norm_x: float, norm_y: float) -> np.ndarray:
@@ -401,32 +442,6 @@ class AttackerGlobalPolicy:
 
         return [start_pos.copy(), goal_pos.copy()]
 
-    def _get_flank_target(self, attacker_pos, defender_pos, target_pos):
-        """侧翼包抄策略：绕行到目标侧翼"""
-        dist_to_target = np.linalg.norm(attacker_pos - target_pos)
-        if dist_to_target < 40 or self.flank_reached:
-            self.flank_reached = True
-            return target_pos
-        if self.flank_waypoint is None:
-            def_to_target = target_pos - defender_pos
-            def_dist = np.linalg.norm(def_to_target)
-            if def_dist < 1e-6:
-                perp = np.array([1.0, 0.0])
-            else:
-                perp = np.array([-def_to_target[1], def_to_target[0]])
-                perp = perp / (np.linalg.norm(perp) + 1e-6)
-            att_to_target = target_pos - attacker_pos
-            side = np.sign(np.dot(perp, att_to_target)) if np.abs(np.dot(perp, att_to_target)) > 1e-6 else 1
-            waypoint = target_pos + perp * self.flank_offset * side
-            waypoint[0] = np.clip(waypoint[0], 30, self.env_width - 30)
-            waypoint[1] = np.clip(waypoint[1], 30, self.env_height - 30)
-            self.flank_waypoint = waypoint
-        dist_to_waypoint = np.linalg.norm(attacker_pos - self.flank_waypoint)
-        if dist_to_waypoint < 30:
-            self.flank_reached = True
-            return target_pos
-        return self.flank_waypoint
-
     def _get_orbit_target(self, attacker_pos, defender_pos, target_pos):
         """轨道等待策略：绕目标运动，寻找最佳进攻时机"""
         dist_to_target = np.linalg.norm(attacker_pos - target_pos)
@@ -488,14 +503,13 @@ class AttackerGlobalPolicy:
         target_pos = self.denormalize_pos(obs[6], obs[7])
 
         self.step_count += 1
+        self._switch_strategy_if_needed()
         
         # 1. 确定导航目标 Goal
         nav_goal = target_pos.copy()
         
         # 根据策略调整导航目标
-        if self.strategy == 'flank':
-            nav_goal = self._get_flank_target(attacker_pos, defender_pos, target_pos)
-        elif self.strategy == 'orbit':
+        if self.strategy == 'orbit':
             nav_goal = self._get_orbit_target(attacker_pos, defender_pos, target_pos)
         elif self.strategy == 'evasive':
             nav_goal = self.get_evasive_target(attacker_pos, defender_pos, target_pos)
@@ -524,23 +538,15 @@ class AttackerGlobalPolicy:
             agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
             
             # 基础避让半径
-            if self.strategy == 'aggressive':
-                base_avoid_radius = 0.0
+            max_dist_for_full_avoid = 60.0
+            if dist_defender_to_target >= max_dist_for_full_avoid:
+                base_avoid_radius = self.defender_avoid_radius
             else:
-                max_dist_for_full_avoid = 60.0
-                if dist_defender_to_target >= max_dist_for_full_avoid:
-                    base_avoid_radius = self.defender_avoid_radius
-                else:
-                    ratio = dist_defender_to_target / max_dist_for_full_avoid
-                    base_avoid_radius = agent_radius + ratio * (self.defender_avoid_radius - agent_radius)
+                ratio = dist_defender_to_target / max_dist_for_full_avoid
+                base_avoid_radius = agent_radius + ratio * (self.defender_avoid_radius - agent_radius)
             
             # 生成尝试列表
-            check_radii = [base_avoid_radius]
-            if self.strategy != 'aggressive': 
-                check_radii.extend([base_avoid_radius * 0.5, agent_radius, 0])
-            else:
-                # Aggressive模式也尝试更小半径，但主要是不避让
-                check_radii.append(0)
+            check_radii = [base_avoid_radius, base_avoid_radius * 0.5, agent_radius, 0]
 
             original_radius = self.defender_avoid_radius
             self.path = None
@@ -628,13 +634,16 @@ class AttackerGlobalPolicy:
 
         # 调试信息
         info = {
-            'mode': f'global_{self.strategy}',
+            'mode': f'global_{self.strategy_mode}',
             'attacker_pos': attacker_pos,
             'defender_pos': defender_pos,
             'target_pos': target_pos,
             'path_length': len(self.path),
+            'strategy_mode': self.strategy_mode,
+            'active_strategy': self.strategy,
             'strategy': self.strategy,
             'orbit_attacking': self.orbit_attacking if self.strategy == 'orbit' else None,
+            'switch_steps_left': self._steps_until_switch if self.dynamic_switch else None,
             'in_defender_view': self.is_in_defender_view(attacker_pos, defender_pos)
         }
 

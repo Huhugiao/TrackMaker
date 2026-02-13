@@ -14,7 +14,7 @@ from env import TADEnv
 from hrl.predictor import AttackerGRUPredictor
 from ppo.nets import create_network
 from ppo.util import build_critic_observation
-from rule_policies.attacker_global import ALL_STRATEGIES, AttackerGlobalPolicy
+from rule_policies.attacker_global import SUPPORTED_STRATEGIES, AttackerGlobalPolicy
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
@@ -38,6 +38,7 @@ class HRLEnv(gym.Env):
         hold_min: int = 3,
         hold_max: int = 15,
         macro_gamma: float = 0.95,
+        disable_hold_control: bool = False,
     ):
         super().__init__()
         self.env = TADEnv(reward_mode='hrl')
@@ -51,6 +52,7 @@ class HRLEnv(gym.Env):
         self.hold_min = int(max(1, hold_min))
         self.hold_max = int(max(self.hold_min, hold_max))
         self.macro_gamma = float(macro_gamma)
+        self.disable_hold_control = bool(disable_hold_control)
 
         self.protect_net = self._load_skill_model(protect_model_path, skill_name='protect')
 
@@ -63,7 +65,7 @@ class HRLEnv(gym.Env):
             print('[HRLEnv] chase model path missing, fallback to rule-based chase policy.')
 
         if attacker_strategy == 'random':
-            init_strat = random.choice(ALL_STRATEGIES)
+            init_strat = random.choice(SUPPORTED_STRATEGIES)
         else:
             init_strat = attacker_strategy
         self.attacker_policy = AttackerGlobalPolicy(strategy=init_strat)
@@ -129,6 +131,9 @@ class HRLEnv(gym.Env):
 
         skill_probs = self._softmax(action[:2])
         skill_idx = int(np.argmax(skill_probs))
+
+        if self.disable_hold_control:
+            return skill_idx, 1, skill_probs
 
         if action.size == 2:
             # Backward compatibility with old HRL checkpoints.
@@ -249,7 +254,7 @@ class HRLEnv(gym.Env):
             self.chase_policy.reset()
 
         if self.attacker_strategy_mode == 'random':
-            new_strat = random.choice(ALL_STRATEGIES)
+            new_strat = random.choice(SUPPORTED_STRATEGIES)
             self.attacker_policy = AttackerGlobalPolicy(strategy=new_strat)
         else:
             self.attacker_policy.reset()

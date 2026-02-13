@@ -17,7 +17,8 @@ Defender策略:
 
 Attacker策略:
 - attacker_global: 使用全局路径规划策略
-- default/aggressive/evasive/flank/orbit: 5种核心策略
+- default/evasive/orbit: 3种核心策略
+- switch_random: 周期切换策略（在3种核心策略里轮换）
 """
 
 import os
@@ -112,8 +113,8 @@ class Defenderevaluator:
 class Attackerevaluator:
     """Attacker策略评估器"""
 
-    # 支持的策略列表（精简后的5种核心策略）
-    VALID_STRATEGIES = ['default', 'aggressive', 'evasive', 'flank', 'orbit', 
+    # 支持的策略列表（精简后的3种核心策略）
+    VALID_STRATEGIES = ['default', 'evasive', 'orbit', 'switch_random',
                         'attacker_global']
 
     def __init__(
@@ -140,8 +141,8 @@ class Attackerevaluator:
                 attacker_max_turn=attacker_max_turn,
             )
             print(f"[Attacker] Using Global pathfinding policy (A* navigation)")
-        elif strategy in ['default', 'aggressive', 'evasive', 'flank', 'orbit']:
-            # 新的5种核心策略
+        elif strategy in ['default', 'evasive', 'orbit', 'switch_random']:
+            # 核心策略 + 周期切换策略
             self.model = AttackerGlobalPolicy(
                 env_width=env_width,
                 env_height=env_height,
@@ -151,10 +152,9 @@ class Attackerevaluator:
             )
             strategy_names = {
                 'default': '默认策略(A*+适度避让)',
-                'aggressive': '激进策略(直冲)',
                 'evasive': '规避策略(避视野)',
-                'flank': '侧翼包抄',
-                'orbit': '轨道等待'
+                'orbit': '轨道等待',
+                'switch_random': '周期切换(随机周期, 3选1)',
             }
             print(f"[Attacker] Using {strategy_names.get(strategy, strategy)} strategy")
         else:
@@ -184,7 +184,7 @@ def run_episode_viz(
 
     Args:
         defender_strategy: Defender策略 ('rl', 'astar_to_target', 'astar_to_attacker')
-        attacker_strategy: Attacker策略 ('attacker_global', 'default', 'aggressive', 'evasive', 'flank', 'orbit')
+        attacker_strategy: Attacker策略 ('attacker_global', 'default', 'evasive', 'orbit', 'switch_random')
         defender_checkpoint: RL策略的checkpoint路径
         device: 设备
         fps: 渲染帧率（默认30）
@@ -399,8 +399,8 @@ def main():
         '--attacker', '-a',
         type=str,
         default='attacker_global',
-        choices=['attacker_global', 'default', 'aggressive', 'evasive', 'flank', 'orbit'],
-        help='Attacker strategy (default/aggressive/evasive/flank/orbit are the 5 core strategies)'
+        choices=['attacker_global', 'default', 'evasive', 'orbit', 'switch_random'],
+        help='Attacker strategy (default/evasive/orbit + switch_random)'
     )
 
     # 评估配置

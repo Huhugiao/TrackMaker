@@ -1,9 +1,10 @@
 import ray
 import numpy as np
 import torch
+import time
 from typing import Dict
 
-from ppo.alg_parameters import SetupParameters, TrainingParameters
+from ppo.alg_parameters import SetupParameters
 from ppo.nets import create_network
 from ppo.util import build_critic_observation, update_perf, get_device
 from hrl.hrl_env import HRLEnv
@@ -52,24 +53,27 @@ class HRLRunner:
     def __init__(self, meta_agent_id: int, env_configs: Dict = None):
         self.meta_agent_id = meta_agent_id
         self.env_configs = env_configs or {}
-        # Keep rollout/inference fully on CPU to avoid GPU oversubscription
-        # across many Ray workers.
-        self.device = get_device(prefer_gpu=False)
+        # Default keeps rollout/inference on CPU. Speed tests can opt-in GPU inference.
+        runner_use_gpu = bool(self.env_configs.get('runner_use_gpu', False))
+        runner_gpu_id = int(self.env_configs.get('runner_gpu_id', SetupParameters.GPU_ID))
+        self.device = get_device(prefer_gpu=runner_use_gpu, gpu_id=runner_gpu_id)
 
-        self.gamma = float(TrainingParameters.GAMMA)
-        self.lam = float(TrainingParameters.LAM)
+        self.gamma = float(self.env_configs.get('gamma', 0.95))
+        self.lam = float(self.env_configs.get('lam', 0.95))
 
         self.local_network = create_network('hrl_top').to(self.device)
         self.local_network.eval()
 
         self.reward_normalizer = RewardNormalizer(
             gamma=self.gamma
-        ) if TrainingParameters.REWARD_NORMALIZATION else None
+        ) if bool(self.env_configs.get('reward_normalization', True)) else None
 
         self._init_env()
         self._reset()
 
     def _init_env(self):
+        if 'episode_len' in self.env_configs and self.env_configs.get('episode_len') is not None:
+            EnvParameters.EPISODE_LEN = int(self.env_configs.get('episode_len'))
         self.env = HRLEnv(
             protect_model_path=self.env_configs.get('protect_model_path'),
             chase_model_path=self.env_configs.get('chase_model_path'),
@@ -81,6 +85,7 @@ class HRLRunner:
             hold_min=int(self.env_configs.get('hold_min', 3)),
             hold_max=int(self.env_configs.get('hold_max', 15)),
             macro_gamma=self.gamma,
+            disable_hold_control=bool(self.env_configs.get('disable_hold_control', False)),
         )
 
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):
@@ -110,23 +115,56 @@ class HRLRunner:
         self.local_network.load_state_dict(state_dict)
         self.local_network.eval()
 
-    def run(self, num_steps: int) -> Dict[str, np.ndarray]:
+    def run(self, num_steps: int, profile: bool = False) -> Dict[str, np.ndarray]:
         mb_obs, mb_critic_obs, mb_actions = [], [], []
         mb_log_probs, mb_values, mb_rewards, mb_dones = [], [], [], []
         mb_discounts, mb_gae_discounts = [], []
         predictor_losses = []
         macro_lengths = []
+        total_macro_steps = 0
 
         perf = {'per_r': [], 'per_episode_len': [], 'win': []}
+        finished_episodes = 0
+
+        if profile:
+            timings = {
+                'critic_obs': 0.0,
+                'tensorize': 0.0,
+                'policy_inference': 0.0,
+                'buffer_ops': 0.0,
+                'env_macro_step': 0.0,
+                'reward_norm': 0.0,
+                'episode_reset': 0.0,
+                'bootstrap_value': 0.0,
+                'pack_numpy': 0.0,
+                'gae_compute': 0.0,
+            }
+            profiled_keys = list(timings.keys())
+            rollout_start = time.perf_counter()
 
         for _ in range(num_steps):
+            if profile:
+                t0 = time.perf_counter()
             critic_obs = build_critic_observation(self.defender_obs, self.attacker_obs)
+            if profile:
+                timings['critic_obs'] += time.perf_counter() - t0
+
+            if profile:
+                t0 = time.perf_counter()
             obs_t = torch.tensor(self.defender_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
             critic_obs_t = torch.tensor(critic_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+            if profile:
+                timings['tensorize'] += time.perf_counter() - t0
 
+            if profile:
+                t0 = time.perf_counter()
             with torch.no_grad():
                 actions, log_probs, pre_tanh, values = self.local_network.act(obs_t, critic_obs_t)
+            if profile:
+                timings['policy_inference'] += time.perf_counter() - t0
 
+            if profile:
+                t0 = time.perf_counter()
             top_action = actions.cpu().numpy().flatten()
             pre_tanh_action = pre_tanh.cpu().numpy().flatten()
             log_prob = float(log_probs.cpu().numpy().item())
@@ -137,24 +175,35 @@ class HRLRunner:
             mb_actions.append(pre_tanh_action)
             mb_log_probs.append(log_prob)
             mb_values.append(value)
+            if profile:
+                timings['buffer_ops'] += time.perf_counter() - t0
 
+            if profile:
+                t0 = time.perf_counter()
             obs, macro_reward, terminated, truncated, info = self.env.macro_step(top_action)
+            if profile:
+                timings['env_macro_step'] += time.perf_counter() - t0
             done = terminated or truncated
 
             macro_steps = int(info.get('macro_steps', 1))
             discount = float(self.gamma ** macro_steps)
             gae_discount = float((self.gamma * self.lam) ** macro_steps)
             raw_reward_sum = float(info.get('raw_reward_sum', macro_reward))
+            total_macro_steps += macro_steps
 
             self.defender_obs, self.attacker_obs = obs
             self.done = done
             self.episode_reward += raw_reward_sum
             self.episode_len += macro_steps
 
+            if profile:
+                t0 = time.perf_counter()
             if self.reward_normalizer is not None:
                 train_reward = self.reward_normalizer.update(macro_reward, done)
             else:
                 train_reward = macro_reward
+            if profile:
+                timings['reward_norm'] += time.perf_counter() - t0
 
             mb_rewards.append(float(train_reward))
             mb_dones.append(done)
@@ -172,13 +221,24 @@ class HRLRunner:
                 }
                 update_perf(one_ep, perf)
                 perf['win'].append(one_ep['win'])
+                if profile:
+                    t0 = time.perf_counter()
                 self._reset()
+                if profile:
+                    timings['episode_reset'] += time.perf_counter() - t0
+                    finished_episodes += 1
 
+        if profile:
+            t0 = time.perf_counter()
         last_critic_obs = build_critic_observation(self.defender_obs, self.attacker_obs)
         critic_obs_t = torch.tensor(last_critic_obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             last_value = self.local_network.critic_value(critic_obs_t).cpu().numpy().item()
+        if profile:
+            timings['bootstrap_value'] += time.perf_counter() - t0
 
+        if profile:
+            t0 = time.perf_counter()
         mb_obs = np.array(mb_obs, dtype=np.float32)
         mb_critic_obs = np.array(mb_critic_obs, dtype=np.float32)
         mb_actions = np.array(mb_actions, dtype=np.float32)
@@ -188,20 +248,26 @@ class HRLRunner:
         mb_dones = np.array(mb_dones, dtype=np.float32)
         mb_discounts = np.array(mb_discounts, dtype=np.float32)
         mb_gae_discounts = np.array(mb_gae_discounts, dtype=np.float32)
+        if profile:
+            timings['pack_numpy'] += time.perf_counter() - t0
 
         mb_advs = np.zeros_like(mb_rewards)
 
         lastgaelam = 0.0
+        if profile:
+            t0 = time.perf_counter()
         for t in reversed(range(num_steps)):
             next_value = last_value if t == num_steps - 1 else mb_values[t + 1]
             done_t = mb_dones[t]
             delta = mb_rewards[t] + mb_discounts[t] * next_value * (1.0 - done_t) - mb_values[t]
             lastgaelam = delta + mb_gae_discounts[t] * (1.0 - done_t) * lastgaelam
             mb_advs[t] = lastgaelam
+        if profile:
+            timings['gae_compute'] += time.perf_counter() - t0
 
         mb_returns = mb_advs + mb_values
 
-        return {
+        ret = {
             'obs': mb_obs,
             'critic_obs': mb_critic_obs,
             'actions': mb_actions,
@@ -215,6 +281,16 @@ class HRLRunner:
             'macro_len_mean': float(np.mean(macro_lengths)) if macro_lengths else 0.0,
             'perf': perf,
         }
+        if profile:
+            profiled_total = sum(timings[k] for k in profiled_keys)
+            timings['profiled_total'] = profiled_total
+            timings['rollout_total'] = time.perf_counter() - rollout_start
+            timings['untracked'] = max(0.0, timings['rollout_total'] - profiled_total)
+            timings['num_steps'] = float(num_steps)
+            timings['num_primitive_steps'] = float(total_macro_steps)
+            timings['finished_episodes'] = float(finished_episodes)
+            ret['timings'] = timings
+        return ret
 
     def evaluate(self, num_episodes: int = 5, greedy: bool = True, record_gif: bool = False) -> Dict:
         perf = {'per_r': [], 'per_episode_len': [], 'win': []}

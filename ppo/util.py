@@ -158,7 +158,7 @@ def get_free_ram_gb() -> float:
         return 0.0
 
 
-def get_adjusted_n_envs(base_n_envs: int, ram_threshold_gb: float = 20.0, multiplier: int = 9) -> int:
+def get_adjusted_n_envs(base_n_envs: int, ram_threshold_gb: float = 20.0, multiplier: int = 16) -> int:
     """
     根据空闲RAM大小动态调整并行环境数量。
     
@@ -167,7 +167,7 @@ def get_adjusted_n_envs(base_n_envs: int, ram_threshold_gb: float = 20.0, multip
     Args:
         base_n_envs: 基础并行环境数量
         ram_threshold_gb: RAM阈值（GB），默认20GB
-        multiplier: 乘数，默认6倍
+        multiplier: 乘数，默认16倍
         
     Returns:
         int: 调整后的并行环境数量

@@ -28,10 +28,8 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
         'attacker_collision': bool(attacker_collision)
     }
 
-    reward = 0.0
+    reward = -0.05
     terminated = False
-
-    reward -= 0.04
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
 
@@ -39,12 +37,12 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
         terminated = True
         info['reason'] = 'defender_caught_attacker'
         info['win'] = True
-        reward += success_reward
+        reward += 1.5*success_reward
     elif attacker_captured:
         terminated = True
         info['reason'] = 'attacker_caught_target'
         info['win'] = False
-        reward -= success_reward
+        reward -= 0.5*success_reward
     elif defender_collision:
         terminated = True
         reward -= success_reward
@@ -71,8 +69,8 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
     reward = 0.0
     terminated = False
 
-    # 时间惩罚：每步-0.04
-    reward -= 0.04
+    # 时间惩罚：
+    reward -= 0.08
 
     # 计算defender到attacker的距离
     dx_def_att = (defender['x'] + map_config.pixel_size * 0.5) - (attacker['x'] + map_config.pixel_size * 0.5)
@@ -102,12 +100,12 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
         terminated = True
         info['reason'] = 'defender_caught_attacker'
         info['win'] = True
-        reward += 10.0
-    elif attacker_captured:
-        # chase 模式下 attacker 捕获 target：只终止并判负，不额外惩罚
-        terminated = True
-        info['reason'] = 'attacker_caught_target'
-        info['win'] = False
+        reward += 20.0
+    # elif attacker_captured:
+    #     # chase 模式下 attacker 捕获 target：只终止并判负，不额外惩罚
+    #     terminated = True
+    #     info['reason'] = 'attacker_caught_target'
+    #     info['win'] = False
     elif defender_collision:
         terminated = True
         reward -= 10.0

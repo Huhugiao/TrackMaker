@@ -16,7 +16,7 @@ import map_config
 from map_config import EnvParameters
 from env import TADEnv
 from rule_policies import AttackerGlobalPolicy, AttackerStaticPolicy
-from rule_policies.attacker_global import ALL_STRATEGIES
+from rule_policies.attacker_global import SUPPORTED_STRATEGIES
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
@@ -161,8 +161,8 @@ class Runner:
         if skill_mode == 'protect1':
             return 'attacker_static', None  # 阶段1: 静止对手
         else:
-            # protect2, chase, 其他模式: 从 ALL_STRATEGIES 随机选择
-            strategy = np.random.choice(ALL_STRATEGIES)
+            # protect2, chase, 其他模式: 从支持策略集中随机选择（含switch_random）
+            strategy = np.random.choice(SUPPORTED_STRATEGIES)
             return 'attacker_global', strategy
     
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):

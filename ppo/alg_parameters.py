@@ -55,7 +55,7 @@ class TrainingParameters:
     # --- 训练流程设置 ---
     N_ENVS = 4               # 并行环境数量
     N_STEPS = 2048           # 每个环境采样的步数 (PPO Rollout Length)
-    N_MAX_STEPS = 1.5e7        # 最大训练总步数
+    N_MAX_STEPS = 3e7        # 最大训练总步数
     LOG_EPOCH_STEPS = int(1e4) # 每隔多少步记录一次日志
     
     MINIBATCH_SIZE = 4096    # PPO更新的Mini-batch大小
@@ -121,7 +121,7 @@ class NetParameters:
     ACTION_DIM = 2           # 动作维度 (Angle, Speed)
     
     # MLP 参数 (用于HRL顶层的CTDE网络)
-    HIDDEN_DIM = 256         # 隐藏层维度
+    HIDDEN_DIM = 128         # 隐藏层维度
     NUM_HIDDEN_LAYERS = 3    # 隐藏层层数
     
     # NMN (Neural Modular Network) 参数 (用于底层技能训练)
