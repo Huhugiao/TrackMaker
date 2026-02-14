@@ -19,11 +19,12 @@ if not pygame.get_init():
 class TADEnv(gym.Env):
     Metadata = {'render_modes': ['rgb_array'], 'render_fps': 40}
 
-    def __init__(self, spawn_outside_fov=False, reward_mode='standard'):
+    def __init__(self, spawn_outside_fov=False, reward_mode='standard', hard_action_mask=False):
         super().__init__()
         self.spawn_outside_fov = bool(spawn_outside_fov)
-        self.reward_mode = reward_mode  # 'standard', 'hrl', 'protect', 'protect1', 'protect2', 'chase'
+        self.reward_mode = reward_mode  # 'standard', 'baseline', 'hrl', 'protect', 'protect1', 'protect2', 'chase'
         self.mask_flag = getattr(map_config, 'mask_flag', False)
+        self.hard_action_mask = bool(hard_action_mask)
         self.width = map_config.width
         self.height = map_config.height
         self.pixel_size = map_config.pixel_size
@@ -313,6 +314,91 @@ class TADEnv(gym.Env):
                 return action[0], action[1]
         return action, target_action
 
+    def set_hard_action_mask(self, enabled: bool):
+        self.hard_action_mask = bool(enabled)
+
+    def _get_action_limits(self, role):
+        if role == 'attacker':
+            max_turn = float(getattr(map_config, 'attacker_max_angular_speed', 12.0))
+            max_speed = float(getattr(map_config, 'attacker_speed', 2.0))
+            max_acc = float(getattr(map_config, 'attacker_max_acc', 0.6))
+        else:
+            max_turn = float(getattr(map_config, 'defender_max_angular_speed', 6.0))
+            max_speed = float(getattr(map_config, 'defender_speed', 2.6))
+            max_acc = None
+        return max_turn, max_speed, max_acc
+
+    def _simulate_motion(self, agent, angle_delta, speed, role):
+        max_turn, max_speed, max_acc = self._get_action_limits(role)
+        angle_delta = float(np.clip(angle_delta, -max_turn, max_turn))
+        speed = float(np.clip(speed, 0.0, max_speed))
+
+        if role == 'attacker' and max_acc is not None:
+            prev_speed = float(agent.get('v', 0.0))
+            speed = prev_speed + float(np.clip(speed - prev_speed, -max_acc, max_acc))
+
+        new_theta = float((agent.get('theta', 0.0) + angle_delta) % 360.0)
+        rad_theta = math.radians(new_theta)
+        new_x = float(np.clip(
+            agent['x'] + speed * math.cos(rad_theta),
+            0, self.width - self.pixel_size
+        ))
+        new_y = float(np.clip(
+            agent['y'] + speed * math.sin(rad_theta),
+            0, self.height - self.pixel_size
+        ))
+        return new_x, new_y
+
+    def _encode_action_like_input(self, angle_delta, speed, role, normalized_input):
+        if normalized_input:
+            max_turn, max_speed, _ = self._get_action_limits(role)
+            turn_norm = 0.0 if max_turn <= 1e-6 else float(np.clip(angle_delta / max_turn, -1.0, 1.0))
+            speed_norm = 0.0 if max_speed <= 1e-6 else float(np.clip((speed / max_speed) * 2.0 - 1.0, -1.0, 1.0))
+            return np.array([turn_norm, speed_norm], dtype=np.float32)
+        return np.array([float(angle_delta), float(speed)], dtype=np.float32)
+
+    def _apply_hard_action_mask(self, action, role):
+        if action is None or (not self.hard_action_mask):
+            return action
+
+        arr = np.asarray(action, dtype=np.float32).reshape(-1)
+        if arr.size != 2:
+            return action
+
+        normalized_input = bool(np.all(np.abs(arr) <= 1.0 + 1e-6))
+        physical = self._control_to_physical(arr, role)
+        if physical is None:
+            return action
+
+        orig_angle, orig_speed = float(physical[0]), float(physical[1])
+        max_turn, max_speed, _ = self._get_action_limits(role)
+        ref_agent = self.attacker if role == 'attacker' else self.defender
+        agent_radius = float(getattr(map_config, 'agent_radius', self.pixel_size * 0.5))
+
+        speed_scales = (1.0, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0.0)
+        angle_scales = (0.0, -0.2, 0.2, -0.4, 0.4, -0.6, 0.6, -0.8, 0.8, -1.0, 1.0)
+        best = None
+
+        for s in speed_scales:
+            cand_speed = float(np.clip(orig_speed * s, 0.0, max_speed))
+            for a in angle_scales:
+                cand_angle = float(np.clip(orig_angle + a * max_turn, -max_turn, max_turn))
+                nx, ny = self._simulate_motion(ref_agent, cand_angle, cand_speed, role)
+                cx = nx + self.pixel_size * 0.5
+                cy = ny + self.pixel_size * 0.5
+                if env_lib.is_point_blocked(cx, cy, padding=agent_radius):
+                    continue
+
+                angle_cost = abs(cand_angle - orig_angle) / (max_turn + 1e-6)
+                speed_cost = abs(cand_speed - orig_speed) / (max_speed + 1e-6)
+                cost = angle_cost + 0.35 * speed_cost
+                if best is None or cost < best[0]:
+                    best = (cost, cand_angle, cand_speed)
+
+        if best is None:
+            return self._encode_action_like_input(0.0, 0.0, role, normalized_input)
+        return self._encode_action_like_input(best[1], best[2], role, normalized_input)
+
     def _control_to_physical(self, action, role):
         if action is None:
             return None
@@ -344,14 +430,24 @@ class TADEnv(gym.Env):
         # 保存移动前的位置（用于奖励计算）
         self.prev_defender_pos = self.defender.copy()
         self.prev_attacker_pos = self.attacker.copy()
+        prev_defender_radar = None
+        if self.current_obs is not None:
+            prev_defender_obs = self.current_obs[0] if isinstance(self.current_obs, tuple) else self.current_obs
+            prev_defender_obs = np.asarray(prev_defender_obs, dtype=np.float32).reshape(-1)
+            radar_start = 7
+            radar_end = radar_start + int(self.radar_rays)
+            if prev_defender_obs.size >= radar_end:
+                prev_defender_radar = prev_defender_obs[radar_start:radar_end]
 
         if defender_action is not None:
+            defender_action = self._apply_hard_action_mask(defender_action, role='defender')
             defender_phys = self._control_to_physical(defender_action, 'defender')
             if defender_phys is not None:
                 angle_delta, speed = defender_phys
                 self.defender = env_lib.agent_move_velocity(self.defender, angle_delta, speed, self.defender_speed, role='defender')
 
         if attacker_action is not None:
+            attacker_action = self._apply_hard_action_mask(attacker_action, role='attacker')
             attacker_phys = self._control_to_physical(attacker_action, 'attacker')
             if attacker_phys is not None:
                 angle_delta, speed = attacker_phys
@@ -426,6 +522,7 @@ class TADEnv(gym.Env):
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
                 radar=defender_radar,
+                prev_radar=prev_defender_radar,
                 initial_dist_def_tgt=self.initial_dist_def_tgt
             )
         elif self.reward_mode == 'chase':
@@ -441,10 +538,11 @@ class TADEnv(gym.Env):
                 capture_progress_attacker=int(self._capture_counter_attacker),
                 capture_required_steps=int(self.capture_required_steps),
                 radar=defender_radar,
+                prev_radar=prev_defender_radar,
                 initial_dist_def_att=self.initial_dist_def_att
             )
         elif self.reward_mode == 'hrl':
-            reward, terminated, truncated, info = reward_fn.reward_calculate_tad(
+            reward, terminated, truncated, info = reward_fn.reward_calculate_baseline(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
                 prev_attacker=self.prev_attacker_pos,
@@ -457,6 +555,23 @@ class TADEnv(gym.Env):
                 capture_required_steps=int(self.capture_required_steps),
                 radar=defender_radar,
                 initial_dist_def_tgt=self.initial_dist_def_tgt,
+                initial_dist_def_att=self.initial_dist_def_att,
+            )
+        elif self.reward_mode == 'baseline':
+            reward, terminated, truncated, info = reward_fn.reward_calculate_baseline(
+                self.defender, self.attacker, self.target,
+                prev_defender=self.prev_defender_pos,
+                prev_attacker=self.prev_attacker_pos,
+                defender_collision=bool(defender_blocked),
+                attacker_collision=bool(attacker_blocked),
+                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
+                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
+                capture_progress_defender=int(self._capture_counter_defender),
+                capture_progress_attacker=int(self._capture_counter_attacker),
+                capture_required_steps=int(self.capture_required_steps),
+                radar=defender_radar,
+                initial_dist_def_tgt=self.initial_dist_def_tgt,
+                initial_dist_def_att=self.initial_dist_def_att,
             )
         else:  # 'standard'
             reward, terminated, truncated, info = reward_fn.reward_calculate_tad(
@@ -488,10 +603,18 @@ class TADEnv(gym.Env):
         self.current_obs = self._get_obs_features()
         if self.step_count >= EnvParameters.EPISODE_LEN and not terminated:
             truncated = True
-            # protect2 超时按 defender 胜利并给予 +success_reward
+            # protect2 与 standard 超时按 defender 胜利并给予 +success_reward
             if self.reward_mode == 'protect2':
                 reward += float(getattr(map_config, 'success_reward', 20.0))
-            info = reward_fn.apply_timeout_defender_win(info)
+            if self.reward_mode == 'standard':
+                reward += float(getattr(map_config, 'success_reward', 20.0))
+            if self.reward_mode == 'chase':
+                timeout_info = dict(info) if info is not None else {}
+                timeout_info['reason'] = 'timeout_task_failed'
+                timeout_info['win'] = False
+                info = timeout_info
+            else:
+                info = reward_fn.apply_timeout_defender_win(info)
 
         return self.current_obs, float(reward), bool(terminated), bool(truncated), info
 
@@ -670,7 +793,7 @@ class TADEnv(gym.Env):
             
             # 时间优势约束: dist(T,A) * defender_speed > dist(T,D) * attacker_speed
             # Defender 有足够时间拦截 Attacker
-            if dist_to_attacker * defender_speed > 0.85 * dist_to_defender * attacker_speed:
+            if dist_to_attacker * defender_speed * 0.8 > dist_to_defender * attacker_speed:
                 return {'x': x, 'y': y, 'theta': 0.0}
 
         # Fallback: 生成在Defender附近但远离Attacker的位置

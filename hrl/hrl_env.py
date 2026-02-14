@@ -12,9 +12,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from env import TADEnv
 from hrl.predictor import AttackerGRUPredictor
+from ppo.alg_parameters import NetParameters
 from ppo.nets import create_network
 from ppo.util import build_critic_observation
-from rule_policies.attacker_global import SUPPORTED_STRATEGIES, AttackerGlobalPolicy
+from rule_policies.attacker_global import SUPPORTED_STRATEGIES, TRAINING_STRATEGIES, AttackerGlobalPolicy
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
@@ -35,10 +36,11 @@ class HRLEnv(gym.Env):
         predictor_hidden_dim: int = 64,
         predictor_lr: float = 1e-3,
         predictor_train: bool = True,
-        hold_min: int = 3,
-        hold_max: int = 15,
+        hold_min: int = 1,
+        hold_max: int = 1,
         macro_gamma: float = 0.95,
-        disable_hold_control: bool = False,
+        disable_hold_control: bool = True,
+        disable_predictor: bool = False,
     ):
         super().__init__()
         self.env = TADEnv(reward_mode='hrl')
@@ -53,6 +55,7 @@ class HRLEnv(gym.Env):
         self.hold_max = int(max(self.hold_min, hold_max))
         self.macro_gamma = float(macro_gamma)
         self.disable_hold_control = bool(disable_hold_control)
+        self.disable_predictor = bool(disable_predictor)
 
         self.protect_net = self._load_skill_model(protect_model_path, skill_name='protect')
 
@@ -65,13 +68,16 @@ class HRLEnv(gym.Env):
             print('[HRLEnv] chase model path missing, fallback to rule-based chase policy.')
 
         if attacker_strategy == 'random':
-            init_strat = random.choice(SUPPORTED_STRATEGIES)
+            init_strat = random.choice(TRAINING_STRATEGIES)
         else:
             init_strat = attacker_strategy
         self.attacker_policy = AttackerGlobalPolicy(strategy=init_strat)
 
-        self.predictor = AttackerGRUPredictor(hidden_dim=int(predictor_hidden_dim)).to(self.device)
-        self.predictor_optimizer = torch.optim.Adam(self.predictor.parameters(), lr=float(predictor_lr))
+        self.predictor = None
+        self.predictor_optimizer = None
+        if not self.disable_predictor:
+            self.predictor = AttackerGRUPredictor(hidden_dim=int(predictor_hidden_dim)).to(self.device)
+            self.predictor_optimizer = torch.optim.Adam(self.predictor.parameters(), lr=float(predictor_lr))
         self.predictor_train = bool(predictor_train)
         self.predictor_hidden = None
         self.last_prediction = np.array([0.5, 0.5], dtype=np.float32)
@@ -99,6 +105,11 @@ class HRLEnv(gym.Env):
         if any('tracking_branch' in k for k in keys):
             return 'nmn'
         if any('actor_backbone' in k for k in keys):
+            critic_in_dim = None
+            if 'critic_backbone.0.weight' in state_dict and hasattr(state_dict['critic_backbone.0.weight'], 'shape'):
+                critic_in_dim = int(state_dict['critic_backbone.0.weight'].shape[1])
+            if critic_in_dim == NetParameters.ACTOR_VECTOR_LEN:
+                return 'mlp_noctde'
             return 'mlp'
         return 'nmn'
 
@@ -186,6 +197,12 @@ class HRLEnv(gym.Env):
         return float(rel_x_norm), float(rel_y_norm), is_visible
 
     def _predict_attacker(self, train_predictor: bool):
+        if self.disable_predictor or self.predictor is None:
+            true_x, true_y, is_visible = self._build_true_attacker_measurement()
+            self.last_prediction = np.array([true_x, true_y], dtype=np.float32)
+            self.last_predictor_loss = 0.0
+            return self.last_prediction.copy(), bool(is_visible)
+
         true_x, true_y, is_visible = self._build_true_attacker_measurement()
 
         if is_visible:
@@ -237,6 +254,14 @@ class HRLEnv(gym.Env):
 
     def _process_observation(self, raw_obs, train_predictor: bool):
         defender_obs, attacker_obs = raw_obs
+        if self.disable_predictor:
+            processed = (
+                np.asarray(defender_obs, dtype=np.float32),
+                np.asarray(attacker_obs, dtype=np.float32),
+            )
+            self.cached_obs = processed
+            return processed
+
         prediction, is_visible = self._predict_attacker(train_predictor=train_predictor)
         actor_obs = self._inject_prediction_to_obs(defender_obs, prediction, is_visible)
 
@@ -254,7 +279,7 @@ class HRLEnv(gym.Env):
             self.chase_policy.reset()
 
         if self.attacker_strategy_mode == 'random':
-            new_strat = random.choice(SUPPORTED_STRATEGIES)
+            new_strat = random.choice(TRAINING_STRATEGIES)
             self.attacker_policy = AttackerGlobalPolicy(strategy=new_strat)
         else:
             self.attacker_policy.reset()

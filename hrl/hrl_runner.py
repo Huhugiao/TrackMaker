@@ -60,8 +60,9 @@ class HRLRunner:
 
         self.gamma = float(self.env_configs.get('gamma', 0.95))
         self.lam = float(self.env_configs.get('lam', 0.95))
+        self.network_type = str(self.env_configs.get('network_type', 'hrl_top'))
 
-        self.local_network = create_network('hrl_top').to(self.device)
+        self.local_network = create_network(self.network_type).to(self.device)
         self.local_network.eval()
 
         self.reward_normalizer = RewardNormalizer(
@@ -82,10 +83,11 @@ class HRLRunner:
             predictor_hidden_dim=int(self.env_configs.get('predictor_hidden_dim', 64)),
             predictor_lr=float(self.env_configs.get('predictor_lr', 1e-3)),
             predictor_train=bool(self.env_configs.get('predictor_train', True)),
-            hold_min=int(self.env_configs.get('hold_min', 3)),
-            hold_max=int(self.env_configs.get('hold_max', 15)),
+            hold_min=int(self.env_configs.get('hold_min', 1)),
+            hold_max=int(self.env_configs.get('hold_max', 1)),
             macro_gamma=self.gamma,
-            disable_hold_control=bool(self.env_configs.get('disable_hold_control', False)),
+            disable_hold_control=bool(self.env_configs.get('disable_hold_control', True)),
+            disable_predictor=bool(self.env_configs.get('disable_predictor', False)),
         )
 
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):

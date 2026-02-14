@@ -260,6 +260,7 @@ def _create_runners(args, n_envs: int, network_type: str):
             'predictor_train': bool(not args.disable_predictor_train),
             'hold_min': int(args.hold_min),
             'hold_max': int(args.hold_max),
+            'disable_hold_control': True,
             'runner_use_gpu': bool(args.hrl_runner_use_gpu),
         }
 

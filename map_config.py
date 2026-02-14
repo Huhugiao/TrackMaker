@@ -16,8 +16,14 @@ class ObstacleDensity:
     DENSE = "dense"
     ALL_LEVELS = [NONE, DENSE]
 
+class MapLayout:
+    DEFAULT = "default"
+    ALL_LAYOUTS = [DEFAULT]
+
 DEFAULT_OBSTACLE_DENSITY = ObstacleDensity.DENSE
 current_obstacle_density = DEFAULT_OBSTACLE_DENSITY
+DEFAULT_MAP_LAYOUT = MapLayout.DEFAULT
+current_map_layout = DEFAULT_MAP_LAYOUT
 
 _jitter_px = 0
 _jitter_seed = 0
@@ -100,22 +106,37 @@ _DENSE_OBSTACLES = [
     {'type': 'rect', 'x': 550, 'y': 550, 'w': 40, 'h': 40, 'color': OBSTACLE_COLOR},
 ]
 
+MAP_LAYOUT_PRESETS = {
+    MapLayout.DEFAULT: _DENSE_OBSTACLES,
+}
+
 OBSTACLE_PRESETS = {
     ObstacleDensity.NONE: [],
-    ObstacleDensity.DENSE: _DENSE_OBSTACLES,
+    ObstacleDensity.DENSE: MAP_LAYOUT_PRESETS.get(DEFAULT_MAP_LAYOUT, _DENSE_OBSTACLES),
 }
+
+extra_obstacles = []
 
 obstacles = list(WALL_OBSTACLES)
 obstacles.extend(OBSTACLE_PRESETS.get(DEFAULT_OBSTACLE_DENSITY, []))
 
 occ_cell = 4.0
 
-def regenerate_obstacles(count=None, seed=None, density_level=None, target_pos=None):
-    global current_obstacle_density, obstacles
+def regenerate_obstacles(count=None, seed=None, density_level=None, target_pos=None, map_layout=None):
+    global current_obstacle_density, current_map_layout, obstacles
     if density_level is not None:
         current_obstacle_density = density_level
+    if map_layout is not None:
+        if map_layout not in MapLayout.ALL_LAYOUTS:
+            raise ValueError(f"Invalid map layout: {map_layout}")
+        current_map_layout = map_layout
     obstacles[:] = list(WALL_OBSTACLES)
-    obstacles.extend(OBSTACLE_PRESETS.get(current_obstacle_density, []))
+    if current_obstacle_density == ObstacleDensity.NONE:
+        interior_obstacles = []
+    else:
+        interior_obstacles = MAP_LAYOUT_PRESETS.get(current_map_layout, MAP_LAYOUT_PRESETS[MapLayout.DEFAULT])
+    obstacles.extend(interior_obstacles)
+    obstacles.extend(extra_obstacles)
 
     if target_pos is not None:
         tx, ty = target_pos['x'], target_pos['y']
@@ -155,8 +176,26 @@ def set_obstacle_density(density_level):
     current_obstacle_density = density_level
     regenerate_obstacles(density_level=density_level)
 
+
+def set_extra_obstacles(obstacle_list):
+    global extra_obstacles
+    if obstacle_list is None:
+        extra_obstacles = []
+    else:
+        extra_obstacles = [dict(obs) for obs in obstacle_list]
+
 def get_obstacle_density():
     return current_obstacle_density
+
+def set_map_layout(layout_name):
+    global current_map_layout
+    if layout_name not in MapLayout.ALL_LAYOUTS:
+        raise ValueError(f"Invalid map layout: {layout_name}")
+    current_map_layout = layout_name
+    regenerate_obstacles(map_layout=layout_name)
+
+def get_map_layout():
+    return current_map_layout
 
 def set_obstacle_jitter(jitter_px=0, seed=0):
     global _jitter_px, _jitter_seed

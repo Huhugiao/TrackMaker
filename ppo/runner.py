@@ -16,7 +16,7 @@ import map_config
 from map_config import EnvParameters
 from env import TADEnv
 from rule_policies import AttackerGlobalPolicy, AttackerStaticPolicy
-from rule_policies.attacker_global import SUPPORTED_STRATEGIES
+from rule_policies.attacker_global import SUPPORTED_STRATEGIES, TRAINING_STRATEGIES
 from rule_policies.defender_global import DefenderGlobalPolicy
 
 
@@ -103,6 +103,7 @@ class Runner:
     def __init__(self, meta_agent_id: int, env_configs: Dict = None, network_type: str = 'nmn'):
         self.meta_agent_id = meta_agent_id
         self.env_configs = env_configs or {}
+        self.fixed_attacker_strategy = self.env_configs.get('attacker_strategy')
         
         import torch
         # Runner 强制使用 CPU 推理，避免 GPU 竞争
@@ -124,7 +125,15 @@ class Runner:
         ) if TrainingParameters.REWARD_NORMALIZATION else None
     
     def _init_env(self):
-        self.env = TADEnv(reward_mode=SetupParameters.SKILL_MODE)
+        if 'episode_len' in self.env_configs and self.env_configs.get('episode_len') is not None:
+            EnvParameters.EPISODE_LEN = int(self.env_configs.get('episode_len'))
+
+        reward_mode = str(self.env_configs.get('reward_mode', SetupParameters.SKILL_MODE))
+        self.env = TADEnv(reward_mode=reward_mode)
+
+        expert_skill_mode = str(self.env_configs.get('expert_skill_mode', SetupParameters.SKILL_MODE))
+        if expert_skill_mode not in ('protect', 'protect1', 'protect2', 'chase'):
+            expert_skill_mode = 'chase'
         
         # Create expert policy for imitation learning
         self.expert_policy = DefenderGlobalPolicy(
@@ -132,20 +141,16 @@ class Runner:
             env_height=self.env.height,
             defender_speed=self.env.defender_speed,
             defender_max_turn=getattr(map_config, 'defender_max_angular_speed', 6.0),
-            skill_mode=SetupParameters.SKILL_MODE
+            skill_mode=expert_skill_mode
         )
     
     def _create_opponent_policies(self) -> Dict[str, Any]:
         """创建对手策略池"""
-        policies = {}
-        skill_mode = SetupParameters.SKILL_MODE
-        
-        if skill_mode == 'protect1':
-            # protect1: 静止对手
-            policies['attacker_static'] = ATTACKER_POLICY_REGISTRY['attacker_static']
-        else:
-            # protect2, chase, 其他模式: 使用所有策略（AttackerGlobalPolicy支持的所有策略）
-            policies['attacker_global'] = ATTACKER_POLICY_REGISTRY['attacker_global']
+        # 始终注册两类策略，便于按配置动态切换。
+        policies = {
+            'attacker_global': ATTACKER_POLICY_REGISTRY['attacker_global'],
+            'attacker_static': ATTACKER_POLICY_REGISTRY['attacker_static'],
+        }
         return policies
     
     def _sample_opponent_policy(self) -> Tuple[str, Optional[str]]:
@@ -158,11 +163,22 @@ class Runner:
         """
         skill_mode = SetupParameters.SKILL_MODE
         
+        forced_strategy = self.fixed_attacker_strategy
+        if forced_strategy is not None:
+            forced = str(forced_strategy).lower()
+            if forced == 'static':
+                return 'attacker_static', None
+            if forced == 'random':
+                strategy = np.random.choice(TRAINING_STRATEGIES)
+                return 'attacker_global', strategy
+            if forced in SUPPORTED_STRATEGIES:
+                return 'attacker_global', forced
+
         if skill_mode == 'protect1':
             return 'attacker_static', None  # 阶段1: 静止对手
         else:
             # protect2, chase, 其他模式: 从支持策略集中随机选择（含switch_random）
-            strategy = np.random.choice(SUPPORTED_STRATEGIES)
+            strategy = np.random.choice(TRAINING_STRATEGIES)
             return 'attacker_global', strategy
     
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):

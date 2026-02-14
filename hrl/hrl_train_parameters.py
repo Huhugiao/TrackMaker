@@ -20,13 +20,13 @@ class HRLTrainingParameters:
     CLIP_RANGE = 0.2
     RATIO_CLAMP_MAX = 4.0
     EX_VALUE_COEF = 0.5
-    ENTROPY_COEF = 0.02
+    ENTROPY_COEF = 0.01
     MAX_GRAD_NORM = 0.5
 
     # Rollout / schedule
     N_ENVS = 4
-    N_STEPS = 2048
-    N_MAX_STEPS = 6e7
+    N_STEPS = 256
+    N_MAX_STEPS = 2e6
     LOG_EPOCH_STEPS = int(1e4)
     TBPTT_STEPS = 32
 
@@ -57,12 +57,12 @@ class HRLEnvTrainParameters:
     # 将训练episode最大步长单独收敛到HRL配置，避免依赖全局默认值。
     EPISODE_LEN = 300
 
-    ATTACKER_STRATEGY = 'switch_random'
+    ATTACKER_STRATEGY = 'random'
     PREDICTOR_HIDDEN_DIM = 64
     PREDICTOR_LR = 1e-3
     PREDICTOR_TRAIN = True
 
-    # 宏动作长度范围：下限25，上限=episode上限。
-    HOLD_MIN = 25
-    HOLD_MAX = EPISODE_LEN
-    DISABLE_HOLD_CONTROL = False
+    # 固定决策步长：每个高层动作持续15个环境步。
+    HOLD_MIN = 1
+    HOLD_MAX = 1
+    DISABLE_HOLD_CONTROL = True

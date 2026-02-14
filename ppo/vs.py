@@ -9,6 +9,7 @@ import argparse
 import glob
 import json
 import time
+import re
 import numpy as np
 import torch
 from datetime import datetime
@@ -18,10 +19,10 @@ from typing import Dict, Optional, Tuple, List, Union
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import map_config
-from map_config import EnvParameters, set_obstacle_density
+from map_config import EnvParameters, set_obstacle_density, set_map_layout
 import env_lib
 from ppo.model import Model
-from ppo.util import build_critic_observation, get_device, print_device_info
+from ppo.util import build_critic_observation, get_device, print_device_info, make_gif, make_trajectory_plot
 from ppo.alg_parameters import SetupParameters, NetParameters
 
 # Import Rule Policies
@@ -39,20 +40,99 @@ from env import TADEnv, TrackingEnv  # Fallback/Standard
 # --- Default Paths Configuration ---
 DEFAULT_MODEL_PATHS = {
     # HRL High-Level Manager (MLP)
-    'hrl': './models/hrl_02-12-14-30/best_model.pth',
+    'hrl': './models/hrl_02-14-09-40/best_model.pth',
     
     # Baseline End-to-End PPO (MLP)
-    'baseline': './models/baseline_01-30-22-19/best_model.pth',
+    'baseline': './models/baseline_02-13-23-14/best_model.pth',
+
+    # Ablation High-Level Manager (MLP no-CTDE)
+    # 手动改这里来指定ablation上层模型路径
+    'ablation': './models/ablation_top_only_02-14-09-41/ablation_hrl_top_mlp_noctde/best_model.pth',
     
     # NMN技能模型
     'protect2': './models/defender_protect2_dense_02-11-17-34/best_model.pth',
     'chase': './models/defender_chase_dense_02-11-20-33/best_model.pth',
 }
 
-ALL_ATTACKER_STRATEGIES = ['default', 'evasive', 'orbit']
+ALL_ATTACKER_STRATEGIES = ['default', 'evasive', 'orbit', 'switch_random', 'switch_pressure']
+NEW_ATTACKER_STRATEGIES = ['switch_pressure']
+MAP_LAYOUT_CHOICES = list(getattr(map_config, 'MapLayout').ALL_LAYOUTS)
+EVAL_ENV_STANDARD = 'standard'
+EVAL_ENV_DENSE_HARDMASK = 'dense_hardmask'
+EVAL_ENV_CHOICES = [EVAL_ENV_STANDARD, EVAL_ENV_DENSE_HARDMASK]
+DEFAULT_DENSE_TRAJ_PNG_COUNT = 3
+
+# 高密度测试环境：在default障碍基础上额外叠加障碍。
+EXTRA_DENSE_OBSTACLES = [
+    {'type': 'circle', 'cx': 120, 'cy': 120, 'r': 16},
+    {'type': 'circle', 'cx': 520, 'cy': 120, 'r': 16},
+    {'type': 'circle', 'cx': 120, 'cy': 520, 'r': 16},
+    {'type': 'circle', 'cx': 520, 'cy': 520, 'r': 16},
+    {'type': 'rect', 'x': 230, 'y': 120, 'w': 26, 'h': 26},
+    {'type': 'rect', 'x': 384, 'y': 120, 'w': 26, 'h': 26},
+    {'type': 'rect', 'x': 230, 'y': 474, 'w': 26, 'h': 26},
+    {'type': 'rect', 'x': 384, 'y': 474, 'w': 26, 'h': 26},
+    {'type': 'segment', 'x1': 120, 'y1': 320, 'x2': 170, 'y2': 320, 'thick': 8},
+    {'type': 'segment', 'x1': 470, 'y1': 320, 'x2': 520, 'y2': 320, 'thick': 8},
+    {'type': 'segment', 'x1': 320, 'y1': 120, 'x2': 320, 'y2': 170, 'thick': 8},
+    {'type': 'segment', 'x1': 320, 'y1': 470, 'x2': 320, 'y2': 520, 'thick': 8},
+]
+
+# --- HRL Evaluation Hold Parameters (edit here when needed) ---
+# 说明：这里的参数仅影响 vs.py 中 HRL 评估时的宏动作持续步长。
+HRL_EVAL_HOLD_MIN = 1
+HRL_EVAL_HOLD_MAX = 1
+HRL_EVAL_DISABLE_HOLD_CONTROL = True
+
+# --- Ablation Evaluation Parameters ---
+# 消融框架按训练设定评估: 无GRU、无macro length。
+ABLATION_EVAL_HOLD_MIN = 1
+ABLATION_EVAL_HOLD_MAX = 1
+ABLATION_EVAL_DISABLE_HOLD_CONTROL = True
+ABLATION_EVAL_DISABLE_PREDICTOR = True
 
 import ray
 from ppo.util import get_adjusted_n_envs, get_ray_temp_dir
+
+
+def _set_env_hard_mask(env, enabled: bool):
+    base_env = env.env if hasattr(env, 'env') else env
+    if hasattr(base_env, 'set_hard_action_mask'):
+        base_env.set_hard_action_mask(enabled)
+    else:
+        setattr(base_env, 'hard_action_mask', bool(enabled))
+
+
+def _configure_eval_environment(map_layout: str, eval_env: str) -> bool:
+    """配置评估环境，返回是否启用硬动作掩码。"""
+    hard_mask = (eval_env == EVAL_ENV_DENSE_HARDMASK)
+    dense_extra = []
+    if hard_mask:
+        obs_color = getattr(map_config, 'OBSTACLE_COLOR', (70, 70, 80, 255))
+        for obs in EXTRA_DENSE_OBSTACLES:
+            item = dict(obs)
+            item.setdefault('color', obs_color)
+            dense_extra.append(item)
+
+    if hasattr(map_config, 'set_extra_obstacles'):
+        map_config.set_extra_obstacles(dense_extra if hard_mask else [])
+
+    set_map_layout(map_layout)
+    set_obstacle_density(map_config.DEFAULT_OBSTACLE_DENSITY)
+    map_config.regenerate_obstacles(density_level=map_config.current_obstacle_density)
+
+    env_lib.build_occupancy(
+        width=map_config.width,
+        height=map_config.height,
+        cell=map_config.pixel_size,
+        obstacles=getattr(map_config, 'obstacles', []),
+    )
+    return hard_mask
+
+
+def _safe_filename_token(text: str) -> str:
+    token = re.sub(r'[^0-9A-Za-z_.-]+', '_', str(text)).strip('_.')
+    return token or 'unknown'
 
 
 def _find_latest_checkpoint(model_prefixes: List[str]) -> Optional[str]:
@@ -67,14 +147,59 @@ def _find_latest_checkpoint(model_prefixes: List[str]) -> Optional[str]:
     return candidates[0]
 
 
+def _find_latest_file(patterns: List[str]) -> Optional[str]:
+    candidates: List[str] = []
+    for pattern in patterns:
+        candidates.extend(glob.glob(pattern))
+    candidates = [p for p in candidates if os.path.isfile(p)]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    return candidates[0]
+
+
+def _find_latest_ablation_run_dir() -> Optional[str]:
+    candidates = [d for d in glob.glob(os.path.join('models', 'ablation_gru_macro_nmn_ctde_*')) if os.path.isdir(d)]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    return candidates[0]
+
+
+def _resolve_ablation_paths() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """
+    返回 (top_ckpt, protect_ckpt, chase_ckpt)，优先使用同一轮ablation目录的best_model。
+    """
+    run_dir = _find_latest_ablation_run_dir()
+    if run_dir:
+        top = os.path.join(run_dir, 'ablation_hrl_top_mlp_noctde', 'best_model.pth')
+        protect = os.path.join(run_dir, 'ablation_protect2_mlp_noctde', 'best_model.pth')
+        chase = os.path.join(run_dir, 'ablation_chase_mlp_noctde', 'best_model.pth')
+        if os.path.isfile(top) and os.path.isfile(protect) and os.path.isfile(chase):
+            return top, protect, chase
+
+    # 回退：分别找最新best_model
+    top = _find_latest_file([
+        os.path.join('models', 'ablation_gru_macro_nmn_ctde_*', 'ablation_hrl_top_mlp_noctde', 'best_model.pth'),
+    ])
+    protect = _find_latest_file([
+        os.path.join('models', 'ablation_gru_macro_nmn_ctde_*', 'ablation_protect2_mlp_noctde', 'best_model.pth'),
+    ])
+    chase = _find_latest_file([
+        os.path.join('models', 'ablation_gru_macro_nmn_ctde_*', 'ablation_chase_mlp_noctde', 'best_model.pth'),
+    ])
+    return top, protect, chase
+
+
 def _default_model_path(strategy: str) -> Optional[str]:
     path = DEFAULT_MODEL_PATHS.get(strategy)
-    if path and os.path.exists(path):
+    if path:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"{strategy}模型路径不存在: {path}")
         return path
 
     prefix_map = {
         'hrl': ['hrl'],
-        'baseline': ['baseline'],
         'protect': ['defender_protect_dense', 'defender_protect1_dense', 'defender_protect2_dense'],
         'protect2': ['defender_protect2_dense', 'defender_protect1_dense', 'defender_protect_dense'],
         'chase': ['defender_chase_dense'],
@@ -87,11 +212,17 @@ def _default_model_path(strategy: str) -> Optional[str]:
 
 
 def _resolve_hrl_skill_paths(
+    strategy: str = 'hrl',
     protect_path: Optional[str] = None,
     chase_path: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
-    protect_path = protect_path or _default_model_path('protect2')
-    chase_path = chase_path or _default_model_path('chase')
+    if strategy == 'ablation':
+        _, ablation_protect, ablation_chase = _resolve_ablation_paths()
+        protect_path = protect_path or ablation_protect
+        chase_path = chase_path or ablation_chase
+    else:
+        protect_path = protect_path or _default_model_path('protect2')
+        chase_path = chase_path or _default_model_path('chase')
     return protect_path, chase_path
 
 
@@ -131,30 +262,47 @@ class EvalWorker:
         defender_checkpoint: str,
         network_type: str,
         seed_offset: int,
+        map_layout: str,
+        eval_env: str,
     ) -> dict:
         """在worker中独立运行 num_episodes 个episode并返回统计数据。"""
         import numpy as np
         import map_config
-        from map_config import set_obstacle_density
-        import env_lib
         from env import TADEnv, TrackingEnv
         from hrl.hrl_env import HRLEnv
         from hrl.baseline_env import BaselineEnv
 
+        hard_mask_enabled = _configure_eval_environment(map_layout, eval_env)
+
         # 环境初始化
         is_gym_wrapper = False
-        rl_strategies = ['rl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
+        rl_strategies = ['rl', 'baseline', 'ablation', 'protect', 'protect2', 'chase', 'protect1_nmn']
 
-        if defender_strategy == 'hrl':
-            protect_path, chase_path = _resolve_hrl_skill_paths()
+        if defender_strategy in ['hrl', 'ablation']:
+            protect_path, chase_path = _resolve_hrl_skill_paths(strategy=defender_strategy)
             if not protect_path:
-                raise FileNotFoundError('HRL评估缺少protect skill checkpoint')
-            env = HRLEnv(
-                protect_model_path=protect_path,
-                chase_model_path=chase_path,
-                attacker_strategy=attacker_strategy,
-                device='cpu',
-            )
+                raise FileNotFoundError(f'{defender_strategy}评估缺少protect skill checkpoint')
+            if defender_strategy == 'ablation':
+                env = HRLEnv(
+                    protect_model_path=protect_path,
+                    chase_model_path=chase_path,
+                    attacker_strategy=attacker_strategy,
+                    device='cpu',
+                    hold_min=ABLATION_EVAL_HOLD_MIN,
+                    hold_max=ABLATION_EVAL_HOLD_MAX,
+                    disable_hold_control=ABLATION_EVAL_DISABLE_HOLD_CONTROL,
+                    disable_predictor=ABLATION_EVAL_DISABLE_PREDICTOR,
+                )
+            else:
+                env = HRLEnv(
+                    protect_model_path=protect_path,
+                    chase_model_path=chase_path,
+                    attacker_strategy=attacker_strategy,
+                    device='cpu',
+                    hold_min=HRL_EVAL_HOLD_MIN,
+                    hold_max=HRL_EVAL_HOLD_MAX,
+                    disable_hold_control=HRL_EVAL_DISABLE_HOLD_CONTROL,
+                )
             is_gym_wrapper = True
         elif defender_strategy in rl_strategies:
             env = BaselineEnv(attacker_strategy=attacker_strategy)
@@ -164,14 +312,7 @@ class EvalWorker:
         else:
             env = TrackingEnv()
 
-        # 障碍物
-        set_obstacle_density(map_config.DEFAULT_OBSTACLE_DENSITY)
-        map_config.regenerate_obstacles(density_level=map_config.current_obstacle_density)
-        env_lib.build_occupancy(
-            width=map_config.width, height=map_config.height,
-            cell=map_config.pixel_size,
-            obstacles=getattr(map_config, 'obstacles', []),
-        )
+        _set_env_hard_mask(env, hard_mask_enabled)
 
         # Evaluators
         defender_eval = Defenderevaluator(defender_strategy, defender_checkpoint, 'cpu', network_type=network_type)
@@ -217,7 +358,7 @@ class EvalWorker:
                     next_obs, reward, done_bool, info = output
                     term = done_bool; trunc = False
 
-                if defender_strategy == 'hrl':
+                if defender_strategy in ['hrl', 'ablation']:
                     selected_skill = info.get('selected_skill')
                     if selected_skill == 'protect':
                         stats['hrl_skill_protect_selected'].append(1)
@@ -260,12 +401,19 @@ class EvalWorker:
             stats['defender_collisions'].append(1 if d_col else 0)
             stats['attacker_collisions'].append(1 if a_col else 0)
 
-            if d_cap or timeout:
-                stats['defender_wins'].append(1); stats['attacker_wins'].append(0); stats['draws'].append(0)
-            elif a_cap:
-                stats['defender_wins'].append(0); stats['attacker_wins'].append(1); stats['draws'].append(0)
+            if defender_strategy == 'chase':
+                if d_cap:
+                    stats['defender_wins'].append(1); stats['attacker_wins'].append(0); stats['draws'].append(0)
+                else:
+                    # chase任务: 只有抓到attacker才算胜利，其余(含超时)都算失败
+                    stats['defender_wins'].append(0); stats['attacker_wins'].append(1); stats['draws'].append(0)
             else:
-                stats['defender_wins'].append(0); stats['attacker_wins'].append(0); stats['draws'].append(1)
+                if d_cap or timeout:
+                    stats['defender_wins'].append(1); stats['attacker_wins'].append(0); stats['draws'].append(0)
+                elif a_cap:
+                    stats['defender_wins'].append(0); stats['attacker_wins'].append(1); stats['draws'].append(0)
+                else:
+                    stats['defender_wins'].append(0); stats['attacker_wins'].append(0); stats['draws'].append(1)
 
         return stats
 
@@ -305,11 +453,18 @@ def _load_checkpoint(checkpoint_path: str):
         elif has_actor_backbone:
             # 区分普通MLP(2D action)与HRL顶层MLP(3D action)。
             action_dim = None
+            critic_input_dim = None
             if 'log_std' in state_dict and hasattr(state_dict['log_std'], 'shape'):
                 action_dim = int(state_dict['log_std'].shape[0])
             elif 'policy_mean.weight' in state_dict and hasattr(state_dict['policy_mean.weight'], 'shape'):
                 action_dim = int(state_dict['policy_mean.weight'].shape[0])
-            net_type = 'hrl_top' if action_dim == 3 else 'mlp'
+            if 'critic_backbone.0.weight' in state_dict and hasattr(state_dict['critic_backbone.0.weight'], 'shape'):
+                critic_input_dim = int(state_dict['critic_backbone.0.weight'].shape[1])
+
+            if action_dim == 3:
+                net_type = 'hrl_top_noctde' if critic_input_dim == NetParameters.ACTOR_VECTOR_LEN else 'hrl_top'
+            else:
+                net_type = 'mlp_noctde' if critic_input_dim == NetParameters.ACTOR_VECTOR_LEN else 'mlp'
         else:
             net_type = 'nmn'
 
@@ -345,7 +500,7 @@ class Defenderevaluator:
         self.device = get_device(prefer_gpu=(device == 'cuda'))
         
         # RL策略列表
-        rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
+        rl_strategies = ['rl', 'hrl', 'baseline', 'ablation', 'protect', 'protect2', 'chase', 'protect1_nmn']
         
         # 自动解析checkpoint
         if strategy in rl_strategies and checkpoint_path is None:
@@ -371,7 +526,7 @@ class Defenderevaluator:
                 old_action_dim = NetParameters.ACTION_DIM
                 if arch_info.get('hidden_dim') is not None:
                     NetParameters.HIDDEN_DIM = int(arch_info['hidden_dim'])
-                if network_type == 'hrl_top':
+                if network_type in ['hrl_top', 'hrl_top_noctde']:
                     # create_network('hrl_top') 内部会强制 action_dim=3
                     NetParameters.ACTION_DIM = 2
                 elif arch_info.get('action_dim') is not None:
@@ -415,7 +570,7 @@ class Defenderevaluator:
     def get_action(self, obs: np.ndarray, env: object, attacker_obs: np.ndarray = None) -> np.ndarray:
         """Get action from policy"""
         # RL策略（包括各种技能模型）
-        rl_strategies = ['rl', 'hrl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
+        rl_strategies = ['rl', 'hrl', 'baseline', 'ablation', 'protect', 'protect2', 'chase', 'protect1_nmn']
         
         if self.strategy in rl_strategies:
             # PPO Model Evaluation
@@ -469,6 +624,7 @@ class Attackerevaluator:
 
     # 支持的策略列表
     VALID_STRATEGIES = ['default', 'evasive', 'orbit', 'switch_random',
+                        'switch_pressure',
                         'attacker_apf', 'attacker_global', 'static', 'random']
 
     def __init__(
@@ -494,7 +650,7 @@ class Attackerevaluator:
                 attacker_speed=attacker_speed,
                 attacker_max_turn=attacker_max_turn,
             )
-        elif strategy in ['default', 'evasive', 'orbit', 'switch_random']:
+        elif strategy in ['default', 'evasive', 'orbit', 'switch_random', 'switch_pressure']:
             # 核心策略 + 周期切换策略
             self.model = AttackerGlobalPolicy(
                 env_width=env_width,
@@ -534,14 +690,38 @@ def run_evaluation(
     stats_path: Optional[str] = None,
     seed_offset: int = 0,
     network_type: Optional[str] = None,
-    force_serial: bool = False
+    force_serial: bool = False,
+    map_layout: str = getattr(map_config, 'MapLayout').DEFAULT,
+    eval_env: str = EVAL_ENV_STANDARD,
+    save_traj_png: bool = False,
+    traj_png_count: int = 1,
+    traj_png_path: Optional[str] = None,
 ) -> Tuple[Dict, str]:
+    if defender_strategy in ['hrl', 'ablation'] and attacker_strategy == 'static':
+        raise ValueError("HRL/Ablation评估不支持 attacker=static。请选择动态策略，或使用 all（已默认排除static）。")
 
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] EVAL START: D={defender_strategy} vs A={attacker_strategy}")
+    print(
+        f"[{datetime.now().strftime('%H:%M:%S')}] EVAL START: "
+        f"D={defender_strategy} vs A={attacker_strategy} | map={map_layout} | env={eval_env}"
+    )
+    if defender_strategy == 'hrl':
+        print(
+            f"[HRL Eval Hold] hold_min={HRL_EVAL_HOLD_MIN}, hold_max={HRL_EVAL_HOLD_MAX}, "
+            f"disable_hold_control={HRL_EVAL_DISABLE_HOLD_CONTROL}"
+        )
+    elif defender_strategy == 'ablation':
+        print(
+            f"[Ablation Eval] hold_min={ABLATION_EVAL_HOLD_MIN}, hold_max={ABLATION_EVAL_HOLD_MAX}, "
+            f"disable_hold_control={ABLATION_EVAL_DISABLE_HOLD_CONTROL}, "
+            f"disable_predictor={ABLATION_EVAL_DISABLE_PREDICTOR}"
+        )
 
     # 自动检测网络类型（单次加载）
     if network_type is None and defender_checkpoint:
         _, network_type, _ = _load_checkpoint(defender_checkpoint)
+
+    traj_png_count = max(0, int(traj_png_count))
+    need_traj_png = bool(save_traj_png and traj_png_count > 0)
 
     # ---- Ray 并行评估 ----
     n_workers = get_adjusted_n_envs(4)  # 基数4，高内存时自动扩展
@@ -565,12 +745,13 @@ def run_evaluation(
             if n_ep > 0:
                 futures.append(w.run_episodes.remote(
                     defender_strategy, attacker_strategy, n_ep,
-                    defender_checkpoint, network_type, ep_offset,
+                    defender_checkpoint, network_type, ep_offset, map_layout, eval_env,
                 ))
             ep_offset += n_ep
 
         all_stats = ray.get(futures)
         stats = _merge_stats(all_stats)
+        trajectory_data_list = []
 
         # 清理workers
         del workers
@@ -580,8 +761,27 @@ def run_evaluation(
         stats = _run_serial_evaluation(
             defender_strategy, attacker_strategy, num_episodes,
             defender_checkpoint, device, network_type,
-            save_gif, gif_episodes, seed_offset,
+            save_gif, gif_episodes, seed_offset, map_layout, eval_env,
+            collect_trajectory_episodes=traj_png_count if need_traj_png else 0,
         )
+        trajectory_data_list = stats.pop('_trajectory_data_list', [])
+        # 兼容旧字段
+        legacy_traj = stats.pop('_trajectory_data', None)
+        if legacy_traj is not None and not trajectory_data_list:
+            trajectory_data_list = [legacy_traj]
+
+    # 并行模式下如需PNG，补跑若干条串行轨迹用于可视化
+    if use_parallel and need_traj_png:
+        serial_for_traj = _run_serial_evaluation(
+            defender_strategy, attacker_strategy, num_episodes=traj_png_count,
+            defender_checkpoint=defender_checkpoint, device=device, network_type=network_type,
+            save_gif=False, gif_episodes=0, seed_offset=seed_offset,
+            map_layout=map_layout, eval_env=eval_env, collect_trajectory_episodes=traj_png_count,
+        )
+        trajectory_data_list = serial_for_traj.pop('_trajectory_data_list', [])
+        legacy_traj = serial_for_traj.pop('_trajectory_data', None)
+        if legacy_traj is not None and not trajectory_data_list:
+            trajectory_data_list = [legacy_traj]
 
     # Final Compilation
     hrl_protect_count = int(sum(stats.get('hrl_skill_protect_selected', [])))
@@ -597,6 +797,8 @@ def run_evaluation(
     final_results = {
         'defender_strategy': defender_strategy,
         'attacker_strategy': attacker_strategy,
+        'map_layout': map_layout,
+        'eval_env': eval_env,
         'episodes': num_episodes,
         'success_rate': np.mean(stats['defender_wins']),
         'defender_win_rate': np.mean(stats['defender_wins']),
@@ -616,9 +818,8 @@ def run_evaluation(
     gif_out = None
     episode_frames = stats.get('_frames', [])
     if save_gif and episode_frames:
-        from util import make_gif, make_trajectory_plot
         if not gif_path:
-            gif_path = f"./output/{defender_strategy}_vs_{attacker_strategy}.gif"
+            gif_path = f"./output/{defender_strategy}_vs_{attacker_strategy}_{map_layout}_{eval_env}.gif"
         os.makedirs(os.path.dirname(gif_path) if os.path.dirname(gif_path) else '.', exist_ok=True)
         saved_count = 0
         for idx, reason, frames in episode_frames:
@@ -627,6 +828,25 @@ def run_evaluation(
             saved_count += 1
         print(f"  [GIF] Saved {saved_count} gifs")
         gif_out = gif_path
+
+    if need_traj_png and trajectory_data_list:
+        default_traj_path = f"./output/{defender_strategy}_vs_{attacker_strategy}_{map_layout}_{eval_env}.png"
+        base_path = traj_png_path or default_traj_path
+        os.makedirs(os.path.dirname(base_path) if os.path.dirname(base_path) else '.', exist_ok=True)
+
+        if len(trajectory_data_list) == 1:
+            make_trajectory_plot(trajectory_data_list[0], base_path, dpi=150)
+            print(f"  [TRAJ] Saved trajectory plot to {base_path}")
+        else:
+            root, ext = os.path.splitext(base_path)
+            ext = ext or '.png'
+            saved_paths = []
+            for idx, traj in enumerate(trajectory_data_list):
+                reason = _safe_filename_token(traj.get('reason', 'unknown'))
+                p = f"{root}_ep{idx}_{reason}{ext}"
+                make_trajectory_plot(traj, p, dpi=150)
+                saved_paths.append(p)
+            print(f"  [TRAJ] Saved {len(saved_paths)} trajectory plots")
 
     if save_stats and stats_path:
         os.makedirs(os.path.dirname(stats_path), exist_ok=True)
@@ -638,10 +858,10 @@ def run_evaluation(
     d_wr = final_results['defender_win_rate'] * 100
     a_wr = final_results['attacker_win_rate'] * 100
     mode_str = f"parallel({n_workers}w)" if use_parallel else "serial"
-    print(f"  RESULT [{mode_str}]: D-win={d_wr:.1f}% A-win={a_wr:.1f}% "
+    print(f"  RESULT [{mode_str}, {eval_env}]: D-win={d_wr:.1f}% A-win={a_wr:.1f}% "
           f"mean_len={final_results['mean_episode_length']:.0f} "
           f"mean_rw={final_results['mean_reward']:.2f}")
-    if defender_strategy == 'hrl' and hrl_total_count > 0:
+    if defender_strategy in ['hrl', 'ablation'] and hrl_total_count > 0:
         print(
             f"  HRL Skill选择占比: protect={hrl_protect_selection_rate*100:.1f}% "
             f"chase={hrl_chase_selection_rate*100:.1f}%"
@@ -653,23 +873,38 @@ def run_evaluation(
 def _run_serial_evaluation(
     defender_strategy, attacker_strategy, num_episodes,
     defender_checkpoint, device, network_type,
-    save_gif, gif_episodes, seed_offset,
+    save_gif, gif_episodes, seed_offset, map_layout, eval_env, collect_trajectory_episodes=0,
 ) -> dict:
     """串行运行episodes（用于GIF保存或单episode模式）。"""
     # Environment Selection
     is_gym_wrapper = False
-    rl_strategies = ['rl', 'baseline', 'protect', 'protect2', 'chase', 'protect1_nmn']
+    rl_strategies = ['rl', 'baseline', 'ablation', 'protect', 'protect2', 'chase', 'protect1_nmn']
 
-    if defender_strategy == 'hrl':
-        protect_path, chase_path = _resolve_hrl_skill_paths()
+    if defender_strategy in ['hrl', 'ablation']:
+        protect_path, chase_path = _resolve_hrl_skill_paths(strategy=defender_strategy)
         if not protect_path:
-            raise FileNotFoundError('HRL评估缺少protect skill checkpoint')
-        env = HRLEnv(
-            protect_model_path=protect_path,
-            chase_model_path=chase_path,
-            attacker_strategy=attacker_strategy,
-            device=device,
-        )
+            raise FileNotFoundError(f'{defender_strategy}评估缺少protect skill checkpoint')
+        if defender_strategy == 'ablation':
+            env = HRLEnv(
+                protect_model_path=protect_path,
+                chase_model_path=chase_path,
+                attacker_strategy=attacker_strategy,
+                device=device,
+                hold_min=ABLATION_EVAL_HOLD_MIN,
+                hold_max=ABLATION_EVAL_HOLD_MAX,
+                disable_hold_control=ABLATION_EVAL_DISABLE_HOLD_CONTROL,
+                disable_predictor=ABLATION_EVAL_DISABLE_PREDICTOR,
+            )
+        else:
+            env = HRLEnv(
+                protect_model_path=protect_path,
+                chase_model_path=chase_path,
+                attacker_strategy=attacker_strategy,
+                device=device,
+                hold_min=HRL_EVAL_HOLD_MIN,
+                hold_max=HRL_EVAL_HOLD_MAX,
+                disable_hold_control=HRL_EVAL_DISABLE_HOLD_CONTROL,
+            )
         is_gym_wrapper = True
     elif defender_strategy in rl_strategies:
         env = BaselineEnv(attacker_strategy=attacker_strategy)
@@ -679,13 +914,8 @@ def _run_serial_evaluation(
     else:
         env = TrackingEnv()
 
-    set_obstacle_density(map_config.DEFAULT_OBSTACLE_DENSITY)
-    map_config.regenerate_obstacles(density_level=map_config.current_obstacle_density)
-    env_lib.build_occupancy(
-        width=map_config.width, height=map_config.height,
-        cell=map_config.pixel_size,
-        obstacles=getattr(map_config, 'obstacles', []),
-    )
+    hard_mask_enabled = _configure_eval_environment(map_layout, eval_env)
+    _set_env_hard_mask(env, hard_mask_enabled)
 
     defender_eval = Defenderevaluator(defender_strategy, defender_checkpoint, device, network_type=network_type)
     attacker_eval = Attackerevaluator(attacker_strategy)
@@ -698,6 +928,8 @@ def _run_serial_evaluation(
         'hrl_skill_protect_selected': [], 'hrl_skill_chase_selected': [],
     }
     episode_frames = []
+    collect_trajectory_episodes = max(0, int(collect_trajectory_episodes))
+    trajectory_data_list = []
 
     for episode in range(num_episodes):
         if SetupParameters.EVAL_USE_RANDOM_SEED:
@@ -716,6 +948,19 @@ def _run_serial_evaluation(
         done = False
         ep_reward = 0
         frames = []
+        record_traj = bool(episode < collect_trajectory_episodes)
+        ep_def_traj = []
+        ep_atk_traj = []
+        target_pos = None
+        if record_traj:
+            base_env = env.env if hasattr(env, 'env') else env
+            if hasattr(base_env, 'get_privileged_state'):
+                priv = base_env.get_privileged_state()
+                ep_def_traj = [(priv['defender']['center_x'], priv['defender']['center_y'])]
+                ep_atk_traj = [(priv['attacker']['center_x'], priv['attacker']['center_y'])]
+                target_pos = (priv['target']['center_x'], priv['target']['center_y'])
+            else:
+                record_traj = False
 
         while not done:
             def_action = defender_eval.get_action(def_obs, env, att_obs)
@@ -731,7 +976,7 @@ def _run_serial_evaluation(
                 next_obs, reward, done_bool, info = output
                 term = done_bool; trunc = False
 
-            if defender_strategy == 'hrl':
+            if defender_strategy in ['hrl', 'ablation']:
                 selected_skill = info.get('selected_skill')
                 if selected_skill == 'protect':
                     stats['hrl_skill_protect_selected'].append(1)
@@ -767,6 +1012,13 @@ def _run_serial_evaluation(
                 except (NotImplementedError, TypeError):
                     pass
 
+            if record_traj:
+                base_env = env.env if hasattr(env, 'env') else env
+                if hasattr(base_env, 'get_privileged_state'):
+                    priv = base_env.get_privileged_state()
+                    ep_def_traj.append((priv['defender']['center_x'], priv['defender']['center_y']))
+                    ep_atk_traj.append((priv['attacker']['center_x'], priv['attacker']['center_y']))
+
         # Record Stats
         stats['rewards'].append(float(ep_reward))
         reason = info.get('reason', 'unknown')
@@ -787,21 +1039,46 @@ def _run_serial_evaluation(
         stats['defender_collisions'].append(1 if d_col else 0)
         stats['attacker_collisions'].append(1 if a_col else 0)
 
-        if d_cap or timeout:
-            stats['defender_wins'].append(1); stats['attacker_wins'].append(0); stats['draws'].append(0)
-        elif a_cap:
-            stats['defender_wins'].append(0); stats['attacker_wins'].append(1); stats['draws'].append(0)
+        if defender_strategy == 'chase':
+            if d_cap:
+                stats['defender_wins'].append(1); stats['attacker_wins'].append(0); stats['draws'].append(0)
+            else:
+                # chase任务: 只有抓到attacker才算胜利，其余(含超时)都算失败
+                stats['defender_wins'].append(0); stats['attacker_wins'].append(1); stats['draws'].append(0)
         else:
-            stats['defender_wins'].append(0); stats['attacker_wins'].append(0); stats['draws'].append(1)
+            if d_cap or timeout:
+                stats['defender_wins'].append(1); stats['attacker_wins'].append(0); stats['draws'].append(0)
+            elif a_cap:
+                stats['defender_wins'].append(0); stats['attacker_wins'].append(1); stats['draws'].append(0)
+            else:
+                stats['defender_wins'].append(0); stats['attacker_wins'].append(0); stats['draws'].append(1)
 
         if save_gif and episode < gif_episodes and len(frames) > 0:
             episode_frames.append((episode, reason, frames))
+
+        if record_traj:
+            trajectory_data_list.append({
+                'defender_traj': ep_def_traj,
+                'attacker_traj': ep_atk_traj,
+                'target_pos': target_pos,
+                'obstacles': list(getattr(map_config, 'obstacles', [])),
+                'width': int(getattr(map_config, 'width', 640)),
+                'height': int(getattr(map_config, 'height', 640)),
+                'win': bool(stats['defender_wins'][-1]) if stats['defender_wins'] else False,
+                'skill_mode': defender_strategy,
+                'episode_len': int(ep_len),
+                'episode_reward': float(ep_reward),
+                'reason': reason,
+                'episode_idx': int(episode),
+            })
 
         if (episode + 1) % 10 == 0:
             print(f"  Ep {episode+1}/{num_episodes} | AvgRw: {np.mean(stats['rewards'][-10:]):.2f} | D-Win: {np.mean(stats['defender_wins'][-10:])*100:.0f}%")
 
     if episode_frames:
         stats['_frames'] = episode_frames
+    if trajectory_data_list:
+        stats['_trajectory_data_list'] = trajectory_data_list
     return stats
 
 # --- Suite Mode ---
@@ -823,7 +1100,15 @@ def _expand_all_attacker_configs(config_list: List[Dict], global_episodes: int) 
     return expanded
 
 
-def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
+def run_suite(
+    config_list: List[Dict],
+    global_episodes=30,
+    gif_episodes=0,
+    global_map_layout=getattr(map_config, 'MapLayout').DEFAULT,
+    global_eval_env=EVAL_ENV_STANDARD,
+    save_traj_png: bool = False,
+    traj_png_count: int = 1,
+):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     suite_dir = f'./output/suite_{timestamp}'
     os.makedirs(suite_dir, exist_ok=True)
@@ -838,7 +1123,13 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
     deduped_configs = []
     seen = set()
     for cfg in expanded_configs:
-        key = (cfg['defender'], cfg['attacker'], int(cfg.get('episodes', global_episodes)))
+        key = (
+            cfg['defender'],
+            cfg['attacker'],
+            cfg.get('map_layout', global_map_layout),
+            cfg.get('eval_env', global_eval_env),
+            int(cfg.get('episodes', global_episodes)),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -857,11 +1148,20 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
         a_strat = config['attacker']
         n_episodes = int(config.get('episodes', global_episodes))
         checkpoint_path = config.get('checkpoint')
+        map_layout = config.get('map_layout', global_map_layout)
+        eval_env = config.get('eval_env', global_eval_env)
+        if d_strat in ['hrl', 'ablation'] and a_strat == 'static':
+            print(
+                f"\n[{i+1}/{len(expanded_configs)}] 配置: 防御者={d_strat} "
+                f"vs 攻击者={a_strat} | map={map_layout} | env={eval_env}"
+            )
+            print("  [Skip] HRL/Ablation不支持 attacker=static，已跳过")
+            continue
         if checkpoint_path is None:
             checkpoint_path = _default_model_path(d_strat)
         print(
             f"\n[{i+1}/{len(expanded_configs)}] 配置: 防御者={d_strat} "
-            f"vs 攻击者={a_strat} | episodes={n_episodes}"
+            f"vs 攻击者={a_strat} | episodes={n_episodes} | map={map_layout} | env={eval_env}"
         )
         print(f"  checkpoint={checkpoint_path}")
 
@@ -870,16 +1170,23 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
             attacker_strategy=a_strat,
             num_episodes=n_episodes,
             defender_checkpoint=checkpoint_path,
+            map_layout=map_layout,
+            eval_env=eval_env,
+            save_traj_png=save_traj_png,
+            traj_png_count=traj_png_count,
             save_stats=True,
-            stats_path=os.path.join(suite_dir, f'res_{d_strat}_vs_{a_strat}.json'),
+            stats_path=os.path.join(suite_dir, f'res_{d_strat}_vs_{a_strat}_{map_layout}_{eval_env}.json'),
             save_gif=gif_episodes > 0,
             gif_episodes=gif_episodes,
-            gif_path=os.path.join(suite_dir, f'{d_strat}_vs_{a_strat}.gif')
+            gif_path=os.path.join(suite_dir, f'{d_strat}_vs_{a_strat}_{map_layout}_{eval_env}.gif'),
+            traj_png_path=os.path.join(suite_dir, f'{d_strat}_vs_{a_strat}_{map_layout}_{eval_env}.png') if save_traj_png else None,
         )
 
         row = {
             'defender': d_strat,
             'attacker': a_strat,
+            'map_layout': map_layout,
+            'eval_env': eval_env,
             'episodes': metrics['episodes'],
             'success_rate': metrics['success_rate'],
             'defender_capture_rate': metrics['defender_capture_rate'],
@@ -894,6 +1201,12 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
         }
         summary_results.append(row)
         matchup_results.append(row.copy())
+
+    if not summary_results:
+        print("\n未产生有效评估配置（可能全部被跳过）。")
+        if ray.is_initialized():
+            ray.shutdown()
+        return
 
     # Save Summary CSV
     import csv
@@ -920,7 +1233,7 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
             writer.writerow(fieldnames)
 
             rows = [r for r in matchup_results if r['attacker'] == attacker]
-            rows = sorted(rows, key=lambda x: x['defender'])
+            rows = sorted(rows, key=lambda x: (x.get('map_layout', ''), x.get('eval_env', ''), x['defender']))
             for row in rows:
                 writer.writerow([row[k] for k in fieldnames])
 
@@ -935,17 +1248,17 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
     print(f"对阵明细保存至 {matchup_csv_path} (按attacker分表)")
     print("\n========== 结果汇总 ==========")
     print(
-        f"{'Defender':<20} {'Attacker':<15} {'胜率':>8} {'D抓获':>8} {'A抓获':>8} "
+        f"{'Defender':<20} {'Attacker':<15} {'Map':<10} {'Env':<14} {'胜率':>8} {'D抓获':>8} {'A抓获':>8} "
         f"{'D碰撞':>8} {'平均步数':>10} {'平均奖励':>10} {'Prot%':>8} {'Chase%':>8}"
     )
-    print("-" * 120)
+    print("-" * 150)
     for res in summary_results:
         protect_rate = res['hrl_protect_selection_rate']
         chase_rate = res['hrl_chase_selection_rate']
         protect_str = f"{protect_rate * 100:>7.1f}%" if protect_rate is not None else f"{'-':>8}"
         chase_str = f"{chase_rate * 100:>7.1f}%" if chase_rate is not None else f"{'-':>8}"
         print(
-            f"{res['defender']:<20} {res['attacker']:<15} {res['success_rate']*100:>7.1f}% "
+            f"{res['defender']:<20} {res['attacker']:<15} {res.get('map_layout', '-'): <10} {res.get('eval_env', '-'): <14} {res['success_rate']*100:>7.1f}% "
             f"{res['defender_capture_rate']*100:>7.1f}% {res['attacker_capture_rate']*100:>7.1f}% "
             f"{res['defender_collision_rate']*100:>7.1f}% {res['mean_episode_length']:>10.1f} "
             f"{res['mean_reward']:>10.2f} {protect_str} {chase_str}"
@@ -955,33 +1268,37 @@ def run_suite(config_list: List[Dict], global_episodes=30, gif_episodes=0):
 def interactive_suite_mode():
     print("\n=== 防御者 vs 攻击者 评估系统 ===")
     
-    # 仅保留当前使用的NMN相关评估策略
-    defenders = ['hrl', 'protect2', 'chase']
-    # 包含所有训练时使用的attacker策略（3种核心策略）+ 周期切换策略 + all + static
+    # 评估策略（baseline测final，ablation测best）
+    defenders = ['hrl', 'baseline', 'ablation', 'protect2', 'chase']
+    # 评估时可选attacker策略 + all + static
     attackers = [
-        'all',          # 展开为3种动态策略（不含static），每种回合数=用户输入
+        'all',          # 展开为5种动态策略（不含static），每种回合数=用户输入
         'default',      # 默认策略：A*寻路 + 适度避让
         'evasive',      # 规避策略：最大化距离并避开Defender视野
         'orbit',        # 轨道等待：绕Target运动寻找时机
         'switch_random',# 随机周期在3种核心策略中切换
+        'switch_pressure', # 压迫切换：在激进/规避之间短周期切换
         'static'        # 静止不动
     ]
     
     defender_names = {
         'hrl': 'HRL分层策略(高层调度)',
+        'baseline': 'Baseline端到端(最终模型)',
+        'ablation': 'Ablation上层(best模型, 无GRU/无macro/NMN/CTDE)',
         'protect2': 'Protect技能(NMN)',
         'chase': 'Chase技能(NMN)'
     }
     attacker_names = {
-        'all': '全量动态策略(3种, 不含static; 每种回合数=你输入的episodes)',
+        'all': '全量动态策略(5种, 不含static; 每种回合数=你输入的episodes)',
         'default': '默认策略(A*+适度避让)',
         'evasive': '规避策略(避视野)',
         'orbit': '轨道等待',
         'switch_random': '周期切换(随机周期, 3选1)',
+        'switch_pressure': '压迫切换(短周期)',
         'static': '静止不动'
     }
     
-    def multi_select(options, names, prompt):
+    def multi_select(options, names, prompt, exclude_when_select_all: Optional[List[str]] = None):
         """多选函数，返回选中的选项列表"""
         print(f"\n{prompt} (输入序号，多选用逗号分隔，如1,2,3 或输入 a 全选):")
         for i, opt in enumerate(options):
@@ -989,7 +1306,10 @@ def interactive_suite_mode():
         
         choice = input("请输入: ").strip().lower()
         if choice == 'a':
-            return options.copy()
+            selected_all = options.copy()
+            if exclude_when_select_all:
+                selected_all = [x for x in selected_all if x not in set(exclude_when_select_all)]
+            return selected_all
         
         selected = []
         try:
@@ -1009,11 +1329,45 @@ def interactive_suite_mode():
     print(f"已选防御者: {[defender_names[d] for d in selected_defenders]}")
     
     # 选择攻击者（可多选）
-    selected_attackers = multi_select(attackers, attacker_names, "选择攻击者策略")
+    selected_attackers = multi_select(
+        attackers,
+        attacker_names,
+        "选择攻击者策略",
+        exclude_when_select_all=['static'],
+    )
     if not selected_attackers:
         print("未选择任何攻击者，退出。")
         return
+    if 'all' in selected_attackers and 'static' in selected_attackers:
+        selected_attackers = [x for x in selected_attackers if x != 'static']
+        print("[提示] 检测到 all 与 static 同时选择，已自动移除 static。")
     print(f"已选攻击者: {[attacker_names[a] for a in selected_attackers]}")
+
+    print("\n选择地图布局:")
+    for i, layout in enumerate(MAP_LAYOUT_CHOICES, start=1):
+        print(f"  {i}. {layout}")
+    map_choice = input("请输入地图序号 (默认1): ").strip()
+    selected_map_layout = MAP_LAYOUT_CHOICES[0]
+    if map_choice.isdigit():
+        map_idx = int(map_choice) - 1
+        if 0 <= map_idx < len(MAP_LAYOUT_CHOICES):
+            selected_map_layout = MAP_LAYOUT_CHOICES[map_idx]
+    print(f"已选地图: {selected_map_layout}")
+
+    print("\n选择评估环境:")
+    eval_env_names = {
+        EVAL_ENV_STANDARD: '标准环境(默认障碍, 无硬掩码)',
+        EVAL_ENV_DENSE_HARDMASK: '高密障碍+硬动作掩码(防撞)',
+    }
+    for i, env_name in enumerate(EVAL_ENV_CHOICES, start=1):
+        print(f"  {i}. {env_name} ({eval_env_names[env_name]})")
+    eval_choice = input("请输入环境序号 (默认1): ").strip()
+    selected_eval_env = EVAL_ENV_CHOICES[0]
+    if eval_choice.isdigit():
+        eval_idx = int(eval_choice) - 1
+        if 0 <= eval_idx < len(EVAL_ENV_CHOICES):
+            selected_eval_env = EVAL_ENV_CHOICES[eval_idx]
+    print(f"已选环境: {selected_eval_env}")
     
     # 设置评估回合数
     ep_input = input("\n评估回合数 (默认30): ").strip()
@@ -1022,12 +1376,20 @@ def interactive_suite_mode():
     # 设置GIF数量
     gif_input = input("保存GIF数量 (默认0，不保存): ").strip()
     gif_count = int(gif_input) if gif_input.isdigit() else 0
+
+    # dense_hardmask下默认保存几张轨迹PNG，便于快速可视化
+    if selected_eval_env == EVAL_ENV_DENSE_HARDMASK:
+        png_input = input(f"保存轨迹PNG数量 (默认{DEFAULT_DENSE_TRAJ_PNG_COUNT}): ").strip()
+        traj_png_count = int(png_input) if png_input.isdigit() else DEFAULT_DENSE_TRAJ_PNG_COUNT
+    else:
+        png_input = input("保存轨迹PNG数量 (默认0，不保存): ").strip()
+        traj_png_count = int(png_input) if png_input.isdigit() else 0
     
     # 生成所有组合
     configs = []
     for d in selected_defenders:
         for a in selected_attackers:
-            configs.append({'defender': d, 'attacker': a})
+            configs.append({'defender': d, 'attacker': a, 'map_layout': selected_map_layout, 'eval_env': selected_eval_env})
     
     print(f"\n========================================")
     print(f"评估配置汇总:")
@@ -1036,6 +1398,7 @@ def interactive_suite_mode():
     print(f"  总组合: {len(configs)}个")
     print(f"  每组回合数: {episodes}")
     print(f"  GIF数量: {gif_count}")
+    print(f"  轨迹PNG数量: {traj_png_count}")
     print(f"========================================")
     
     for i, c in enumerate(configs):
@@ -1047,68 +1410,170 @@ def interactive_suite_mode():
         return
     
     print(f"\n开始评估...")
-    run_suite(configs, global_episodes=episodes, gif_episodes=gif_count)
+    run_suite(
+        configs,
+        global_episodes=episodes,
+        gif_episodes=gif_count,
+        global_map_layout=selected_map_layout,
+        global_eval_env=selected_eval_env,
+        save_traj_png=traj_png_count > 0,
+        traj_png_count=traj_png_count,
+    )
+
+
+def _parse_defenders_arg(single_defender: str, defenders_arg: Optional[str]) -> List[str]:
+    raw = defenders_arg if defenders_arg else single_defender
+    if raw is None:
+        return []
+    items = [x.strip() for x in str(raw).split(',') if x.strip()]
+    deduped = []
+    seen = set()
+    for item in items:
+        if item not in seen:
+            deduped.append(item)
+            seen.add(item)
+    return deduped
 
 def main():
     parser = argparse.ArgumentParser(description="评估脚本 - 防御者 vs 攻击者")
     parser.add_argument('--suite', action='store_true', help="运行预设套件模式")
+    parser.add_argument('--new-attacker-suite', action='store_true', help="仅测试新对手(switch_pressure)，地图固定default")
     parser.add_argument('--no-interactive', action='store_true', help="跳过交互模式，使用命令行参数")
     
     # 命令行参数（用于非交互模式）
     parser.add_argument('--defender', '-d', default='hrl', help="防御者策略")
+    parser.add_argument('--defenders', type=str, default=None, help="多个防御者，用逗号分隔（如 hrl,baseline）")
     parser.add_argument('--attacker', '-a', default='attacker_global', help="攻击者策略")
     parser.add_argument('--episodes', '-n', type=int, default=30, help="评估回合数")
+    parser.add_argument('--map-layout', type=str, default=getattr(map_config, 'MapLayout').DEFAULT, choices=MAP_LAYOUT_CHOICES, help="地图布局")
+    parser.add_argument('--eval-env', type=str, default=EVAL_ENV_STANDARD, choices=EVAL_ENV_CHOICES, help="评估环境类型")
     parser.add_argument('--gif', action='store_true', help="保存GIF")
     parser.add_argument('--checkpoint', type=str, default=None, help="模型检查点路径")
-    parser.add_argument('--network-type', type=str, default=None, choices=['nmn', 'hrl_top'],
-                        help="网络类型: nmn/hrl_top，不指定则自动检测")
+    parser.add_argument('--network-type', type=str, default=None,
+                        choices=['nmn', 'mlp', 'mlp_noctde', 'hrl_top', 'hrl_top_noctde'],
+                        help="网络类型，不指定则自动检测")
     parser.add_argument('--save-stats', action='store_true', help="保存评估统计JSON")
     parser.add_argument('--serial', action='store_true', help="禁用Ray并行，使用串行评估（调试用）")
     parser.add_argument('--stats-path', type=str, default=None, help="统计JSON输出路径")
+    parser.add_argument('--traj-png-count', type=int, default=None, help="保存轨迹PNG数量（dense_hardmask默认3，其它默认0）")
     
     args = parser.parse_args()
-    
+    default_traj_png_count = DEFAULT_DENSE_TRAJ_PNG_COUNT if args.eval_env == EVAL_ENV_DENSE_HARDMASK else 0
+    traj_png_count = default_traj_png_count if args.traj_png_count is None else max(0, int(args.traj_png_count))
+
     # 默认进入交互式界面，除非指定 --no-interactive 或 --suite
-    if args.suite:
+    if args.new_attacker_suite:
+        default_layout = getattr(map_config, 'MapLayout').DEFAULT
+        new_suite = []
+        for attacker in NEW_ATTACKER_STRATEGIES:
+            new_suite.append({'defender': 'hrl', 'attacker': attacker, 'map_layout': default_layout, 'eval_env': args.eval_env})
+            new_suite.append({'defender': 'baseline', 'attacker': attacker, 'map_layout': default_layout, 'eval_env': args.eval_env})
+        run_suite(
+            new_suite,
+            global_episodes=args.episodes,
+            global_map_layout=default_layout,
+            global_eval_env=args.eval_env,
+            save_traj_png=traj_png_count > 0,
+            traj_png_count=traj_png_count,
+        )
+    elif args.suite:
         # Default fixed suite
         default_suite = [
-            {'defender': 'chase', 'attacker': 'all'},
-            {'defender': 'protect2', 'attacker': 'all'},
-            {'defender': 'hrl', 'attacker': 'all'},
+            {'defender': 'chase', 'attacker': 'all', 'map_layout': args.map_layout},
+            {'defender': 'protect2', 'attacker': 'all', 'map_layout': args.map_layout},
+            {'defender': 'hrl', 'attacker': 'all', 'map_layout': args.map_layout},
+            {'defender': 'baseline', 'attacker': 'all', 'map_layout': args.map_layout},
+            {'defender': 'ablation', 'attacker': 'all', 'map_layout': args.map_layout},
         ]
-        run_suite(default_suite, global_episodes=args.episodes)
+        for cfg in default_suite:
+            cfg['eval_env'] = args.eval_env
+        run_suite(
+            default_suite,
+            global_episodes=args.episodes,
+            global_map_layout=args.map_layout,
+            global_eval_env=args.eval_env,
+            save_traj_png=traj_png_count > 0,
+            traj_png_count=traj_png_count,
+        )
     elif args.no_interactive:
+        defenders = _parse_defenders_arg(args.defender, args.defenders)
+        if not defenders:
+            raise ValueError("至少需要一个防御者策略")
+
+        if len(defenders) > 1:
+            if args.checkpoint:
+                raise ValueError("多防御者模式不支持单一 --checkpoint，请去掉后使用各自默认checkpoint")
+            multi_suite = []
+            for d in defenders:
+                cfg = {
+                    'defender': d,
+                    'attacker': args.attacker,
+                    'episodes': args.episodes,
+                    'map_layout': args.map_layout,
+                    'eval_env': args.eval_env,
+                }
+                ckpt = _default_model_path(d)
+                if ckpt:
+                    cfg['checkpoint'] = ckpt
+                multi_suite.append(cfg)
+            run_suite(
+                multi_suite,
+                global_episodes=args.episodes,
+                gif_episodes=10 if args.gif else 0,
+                global_map_layout=args.map_layout,
+                global_eval_env=args.eval_env,
+                save_traj_png=traj_png_count > 0,
+                traj_png_count=traj_png_count,
+            )
+            return
+
+        defender = defenders[0]
+
         if args.attacker == 'all':
-            if not args.checkpoint:
+            ckpt_for_all = args.checkpoint or _default_model_path(defender)
+            if not ckpt_for_all:
                 raise ValueError("attacker=all 时必须通过 --checkpoint 指定模型路径")
-            print("[CLI] attacker=all 将展开为3种动态策略（不含static），每种使用 --episodes")
+            print("[CLI] attacker=all 将展开为5种动态策略（不含static），每种使用 --episodes")
             run_suite(
                 [{
-                    'defender': args.defender,
+                    'defender': defender,
                     'attacker': 'all',
                     'episodes': args.episodes,
-                    'checkpoint': args.checkpoint,
+                    'checkpoint': ckpt_for_all,
+                    'map_layout': args.map_layout,
+                    'eval_env': args.eval_env,
                 }],
                 global_episodes=args.episodes,
                 gif_episodes=10 if args.gif else 0,
+                global_map_layout=args.map_layout,
+                global_eval_env=args.eval_env,
+                save_traj_png=traj_png_count > 0,
+                traj_png_count=traj_png_count,
             )
             return
 
         # 单次运行模式（命令行参数）
         ckpt = args.checkpoint
         if not ckpt:
-            ckpt = _default_model_path(args.defender)
+            ckpt = _default_model_path(defender)
             
-        if args.defender == 'hrl' and args.network_type is None:
-            args.network_type = 'hrl_top'
+        if args.network_type is None:
+            if defender == 'hrl':
+                args.network_type = 'hrl_top'
+            elif defender == 'ablation':
+                args.network_type = 'hrl_top_noctde'
 
         metrics, _ = run_evaluation(
-            defender_strategy=args.defender,
+            defender_strategy=defender,
             attacker_strategy=args.attacker,
             num_episodes=args.episodes,
             defender_checkpoint=ckpt,
+            map_layout=args.map_layout,
+            eval_env=args.eval_env,
             save_gif=True if args.gif else False,
             gif_episodes=10 if args.gif else 0,
+            save_traj_png=traj_png_count > 0,
+            traj_png_count=traj_png_count,
             save_stats=args.save_stats,
             stats_path=args.stats_path,
             network_type=args.network_type,
@@ -1121,7 +1586,7 @@ def main():
             f"mean_len={metrics['mean_episode_length']:.1f}, "
             f"mean_reward={metrics['mean_reward']:.3f}"
         )
-        if args.defender == 'hrl' and metrics['hrl_protect_selection_rate'] is not None:
+        if defender in ['hrl', 'ablation'] and metrics['hrl_protect_selection_rate'] is not None:
             print(
                 f"[EVAL HRL SKILL] protect={metrics['hrl_protect_selection_rate']:.3f}, "
                 f"chase={metrics['hrl_chase_selection_rate']:.3f}"

@@ -6,12 +6,108 @@ import math
 import map_config
 
 
+OBSTACLE_SHAPING_OMEGA = 1.5
+OBSTACLE_SHAPING_K = 12.0
+
+
+def _radar_min_distance_norm(radar):
+    """将雷达最小读数[-1,1]转换为归一化距离[0,1]。"""
+    if radar is None:
+        return None
+    try:
+        min_reading = float(min(radar))
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(1.0, 0.5 * (min_reading + 1.0)))
+
+
+def _obstacle_proximity_delta_reward(radar, prev_radar, omega=OBSTACLE_SHAPING_OMEGA, k=OBSTACLE_SHAPING_K):
+    """
+    基于最近障碍距离差分的非线性避障奖励（非线性，非反函数）。
+
+    公式:
+      d_t = clip((min(radar_t)+1)/2, 0, 1)
+      phi(d) = log(1+k*d) / log(1+k)
+      r_t = omega * (phi(d_t) - phi(d_{t-1}))
+
+    - 距离不变时奖励约为0（近似零和）
+    - 靠近障碍为负，远离障碍为正
+    - d越小越敏感
+    """
+    d_curr = _radar_min_distance_norm(radar)
+    d_prev = _radar_min_distance_norm(prev_radar)
+    if d_curr is None or d_prev is None:
+        return 0.0
+
+    kk = max(float(k), 1e-6)
+    denom = math.log1p(kk)
+    phi_curr = math.log1p(kk * d_curr) / denom
+    phi_prev = math.log1p(kk * d_prev) / denom
+    return float(omega) * (phi_curr - phi_prev)
+
+
 def apply_timeout_defender_win(info=None):
     """统一超时结算：超时按 defender 胜利处理，奖励值不在这里改动。"""
     timeout_info = dict(info) if info is not None else {}
     timeout_info['reason'] = 'timeout_defender_wins'
     timeout_info['win'] = True
     return timeout_info
+
+
+def _guidance_reward_to_attacker(defender, attacker, prev_defender, prev_attacker, initial_dist_def_att):
+    """Chase引导奖励: 鼓励defender持续接近attacker。"""
+    if prev_defender is None or prev_attacker is None or initial_dist_def_att is None:
+        return 0.0
+
+    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+    capture_radius = agent_radius * 2.0
+    if initial_dist_def_att <= capture_radius:
+        return 0.0
+
+    curr_dx = (defender['x'] + map_config.pixel_size * 0.5) - (attacker['x'] + map_config.pixel_size * 0.5)
+    curr_dy = (defender['y'] + map_config.pixel_size * 0.5) - (attacker['y'] + map_config.pixel_size * 0.5)
+    curr_dist = math.hypot(curr_dx, curr_dy)
+
+    prev_dx = (prev_defender['x'] + map_config.pixel_size * 0.5) - (prev_attacker['x'] + map_config.pixel_size * 0.5)
+    prev_dy = (prev_defender['y'] + map_config.pixel_size * 0.5) - (prev_attacker['y'] + map_config.pixel_size * 0.5)
+    prev_dist = math.hypot(prev_dx, prev_dy)
+
+    prev_boundary_dist = max(0.0, prev_dist - capture_radius)
+    curr_boundary_dist = max(0.0, curr_dist - capture_radius)
+    initial_boundary_dist = max(0.0, initial_dist_def_att - capture_radius)
+    if initial_boundary_dist <= 0.0:
+        return 0.0
+
+    distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
+    return float(distance_progress * 10.0)
+
+
+def _guidance_reward_to_target(defender, target, prev_defender, initial_dist_def_tgt):
+    """Protect2引导奖励: 鼓励defender持续接近target。"""
+    if prev_defender is None or initial_dist_def_tgt is None or initial_dist_def_tgt <= 0.0:
+        return 0.0
+
+    target_radius = float(getattr(map_config, 'target_radius', 16.0))
+    agent_radius = float(getattr(map_config, 'agent_radius', 8.0))
+    reach_radius = target_radius + agent_radius
+    success_reward = float(getattr(map_config, 'success_reward', 20.0))
+
+    curr_dx = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
+    curr_dy = (defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
+    curr_dist = math.hypot(curr_dx, curr_dy)
+
+    prev_dx = (prev_defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)
+    prev_dy = (prev_defender['y'] + map_config.pixel_size * 0.5) - (target['y'] + map_config.pixel_size * 0.5)
+    prev_dist = math.hypot(prev_dx, prev_dy)
+
+    prev_boundary_dist = max(0.0, prev_dist - reach_radius)
+    curr_boundary_dist = max(0.0, curr_dist - reach_radius)
+    initial_boundary_dist = max(0.0, initial_dist_def_tgt)
+    if initial_boundary_dist <= 0.0:
+        return 0.0
+
+    distance_progress = (prev_boundary_dist - curr_boundary_dist) / initial_boundary_dist
+    return float(distance_progress * success_reward)
 
 
 def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_attacker=None,
@@ -28,7 +124,7 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
         'attacker_collision': bool(attacker_collision)
     }
 
-    reward = -0.05
+    reward = -0.0
     terminated = False
 
     success_reward = float(getattr(map_config, 'success_reward', 20.0))
@@ -42,7 +138,7 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
         terminated = True
         info['reason'] = 'attacker_caught_target'
         info['win'] = False
-        reward -= 0.5*success_reward
+        reward -= success_reward
     elif defender_collision:
         terminated = True
         reward -= success_reward
@@ -52,11 +148,56 @@ def reward_calculate_tad(defender, attacker, target, prev_defender=None, prev_at
     return float(reward), bool(terminated), False, info
 
 
+def reward_calculate_baseline(defender, attacker, target, prev_defender=None, prev_attacker=None,
+                              defender_collision=False, attacker_collision=False,
+                              defender_captured=False, attacker_captured=False,
+                              capture_progress_defender=0, capture_progress_attacker=0,
+                              capture_required_steps=0, radar=None,
+                              initial_dist_def_tgt=None, initial_dist_def_att=None):
+    """
+    Baseline端到端奖励:
+      TAD现有奖励 + 时间惩罚(-0.04) + 引导奖励(到attacker + 到target)
+    """
+    reward, terminated, truncated, info = reward_calculate_tad(
+        defender=defender,
+        attacker=attacker,
+        target=target,
+        prev_defender=prev_defender,
+        prev_attacker=prev_attacker,
+        defender_collision=defender_collision,
+        attacker_collision=attacker_collision,
+        defender_captured=defender_captured,
+        attacker_captured=attacker_captured,
+        capture_progress_defender=capture_progress_defender,
+        capture_progress_attacker=capture_progress_attacker,
+        capture_required_steps=capture_required_steps,
+        radar=radar,
+        initial_dist_def_tgt=initial_dist_def_tgt,
+    )
+
+    reward -= 0.04
+    reward += _guidance_reward_to_attacker(
+        defender=defender,
+        attacker=attacker,
+        prev_defender=prev_defender,
+        prev_attacker=prev_attacker,
+        initial_dist_def_att=initial_dist_def_att,
+    )
+    reward += _guidance_reward_to_target(
+        defender=defender,
+        target=target,
+        prev_defender=prev_defender,
+        initial_dist_def_tgt=initial_dist_def_tgt,
+    )
+
+    return float(reward), bool(terminated), bool(truncated), info
+
+
 def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_attacker=None,
                            defender_collision=False, attacker_collision=False,
                            defender_captured=False, attacker_captured=False,
                            capture_progress_defender=0, capture_progress_attacker=0,
-                           capture_required_steps=0, radar=None, initial_dist_def_att=None):
+                           capture_required_steps=0, radar=None, prev_radar=None, initial_dist_def_att=None):
     """纯追逃奖励函数 - 用于训练 Chase 技能"""
     info = {
         'capture_progress_defender': int(capture_progress_defender),
@@ -71,6 +212,9 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
 
     # 时间惩罚：
     reward -= 0.08
+
+    # 暂时关闭: 避障差分奖励（每步）
+    # reward += _obstacle_proximity_delta_reward(radar, prev_radar)
 
     # 计算defender到attacker的距离
     dx_def_att = (defender['x'] + map_config.pixel_size * 0.5) - (attacker['x'] + map_config.pixel_size * 0.5)
@@ -178,7 +322,7 @@ def reward_calculate_protect2(defender, attacker, target, prev_defender=None, pr
                               defender_collision=False, attacker_collision=False,
                               defender_captured=False, attacker_captured=False,
                               capture_progress_defender=0, capture_progress_attacker=0,
-                              capture_required_steps=0, radar=None, initial_dist_def_tgt=None):
+                              capture_required_steps=0, radar=None, prev_radar=None, initial_dist_def_tgt=None):
     """Protect阶段2奖励函数：到达target后保护它"""
     info = {
         'capture_progress_defender': int(capture_progress_defender),
@@ -190,6 +334,9 @@ def reward_calculate_protect2(defender, attacker, target, prev_defender=None, pr
 
     reward = 0.0
     terminated = False
+
+    # 暂时关闭: 避障差分奖励（每步）
+    # reward += _obstacle_proximity_delta_reward(radar, prev_radar)
 
     # 计算defender到target的距离
     dx_def_tgt = (defender['x'] + map_config.pixel_size * 0.5) - (target['x'] + map_config.pixel_size * 0.5)

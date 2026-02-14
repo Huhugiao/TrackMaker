@@ -5,7 +5,7 @@ import gymnasium as gym
 import numpy as np
 
 from env import TADEnv
-from rule_policies.attacker_global import SUPPORTED_STRATEGIES, AttackerGlobalPolicy
+from rule_policies.attacker_global import SUPPORTED_STRATEGIES, TRAINING_STRATEGIES, AttackerGlobalPolicy
 
 
 class BaselineEnv(gym.Env):
@@ -32,7 +32,7 @@ class BaselineEnv(gym.Env):
             return
 
         if mode == "random":
-            mode = random.choice(SUPPORTED_STRATEGIES)
+            mode = random.choice(TRAINING_STRATEGIES)
 
         if mode not in SUPPORTED_STRATEGIES:
             raise ValueError(f"Unsupported attacker strategy for BaselineEnv: {strategy}")

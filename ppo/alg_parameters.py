@@ -40,7 +40,7 @@ class SetupParameters:
     # 技能模式: "chase", "protect1", "protect2"
     # protect1: 导航到target阶段 (静止对手, 到达即成功)
     # protect2: 保护target阶段 (导航对手, 任务胜负条件)
-    SKILL_MODE = "chase"
+    SKILL_MODE = "protect2"
 
 
 class TrainingParameters:
@@ -149,7 +149,7 @@ class RecordingParameters:
     TIME = datetime.datetime.now().strftime("_%m-%d-%H-%M")
     
     RETRAIN = False           # 是否继续训练 (加载权重和进度)
-    FRESH_RETRAIN = False     # 仅加载模型权重，重置训练进度和学习率调度
+    FRESH_RETRAIN = True     # 仅加载模型权重，重置训练进度和学习率调度
     RESTORE_DIR = "./models/defender_protect1_dense_02-08-18-14/best_model.pth"          # 恢复模型的目录
     
     TENSORBOARD = True        # 是否使用TensorBoard
