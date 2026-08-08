@@ -1,0 +1,8 @@
+# Optional TurtleBot4/CoppeliaSim validation dependencies.
+-r requirements.txt
+
+cbor>=1.0,<2
+coppeliasim-zmqremoteapi-client>=2.0,<3
+pyzmq>=25,<28
+
+# Scene export also needs the `xacro` executable from a ROS installation.

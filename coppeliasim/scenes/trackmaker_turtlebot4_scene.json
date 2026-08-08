@@ -1,0 +1,611 @@
+{
+  "map": {
+    "width_px": 640,
+    "height_px": 640,
+    "scale_m_per_px": 0.01,
+    "obstacle_height_m": 0.22
+  },
+  "meta": {
+    "density": "dense",
+    "obstacle_seed": 20260325,
+    "spawn_seed": 20260326,
+    "jitter_px": 15,
+    "robot_radius_px": 8.0,
+    "target_radius_px": 16.0,
+    "pixel_size_px": 4.0,
+    "capture_radius_px": 20.0,
+    "capture_sector_angle_deg": 30.0,
+    "defender_speed_px_per_step": 2.6,
+    "attacker_speed_px_per_step": 2.0,
+    "defender_max_turn_deg_per_step": 6.0,
+    "attacker_max_turn_deg_per_step": 12.0,
+    "attacker_max_acc_px_per_step": 0.6,
+    "scale_m_per_px": 0.01,
+    "sim_step_dt": 0.05,
+    "defender_speed_m_per_s": 0.52,
+    "attacker_speed_m_per_s": 0.39999999999999997,
+    "defender_max_turn_rad_per_s": 2.0943951023931953,
+    "attacker_max_turn_rad_per_s": 4.1887902047863905,
+    "robot_source": "official_turtlebot4",
+    "obstacle_height_m": 0.22,
+    "sensor_range_m": 3.0,
+    "episode_len": 449,
+    "robot_model": "official_turtlebot4_urdf",
+    "motion_model": "kinematic_velocity_base",
+    "turtlebot4": {
+      "base_link": "base_link",
+      "left_wheel_joint": "left_wheel_joint",
+      "right_wheel_joint": "right_wheel_joint",
+      "lidar_link": "rplidar_link",
+      "rgb_camera_frame": "oakd_rgb_camera_frame",
+      "wheel_radius_m": 0.035750000000000004,
+      "wheel_separation_m": 0.233
+    },
+    "collision_proxy_enabled": true,
+    "collision_proxy_radius_m": 0.18,
+    "collision_proxy_height_m": 0.11
+  },
+  "obstacles": [
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 6,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 634,
+      "w": 640,
+      "h": 6,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 6,
+      "h": 640,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 634,
+      "y": 0,
+      "w": 6,
+      "h": 640,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 48.0,
+      "y": 43.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 183.0,
+      "y1": 45.0,
+      "x2": 183.0,
+      "y2": 105.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 288.0,
+      "y": 40.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 446.0,
+      "y1": 44.0,
+      "x2": 446.0,
+      "y2": 104.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 541.0,
+      "y": 54.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 41.0,
+      "y1": 209.0,
+      "x2": 101.0,
+      "y2": 209.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 180.0,
+      "cy": 208.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 307.0,
+      "y1": 150.0,
+      "x2": 307.0,
+      "y2": 210.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 447.0,
+      "cy": 196.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 552.0,
+      "y1": 196.0,
+      "x2": 612.0,
+      "y2": 196.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 45.0,
+      "y": 314.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 175.0,
+      "y1": 309.0,
+      "x2": 235.0,
+      "y2": 309.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 313.0,
+      "y": 291.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 421.0,
+      "y1": 335.0,
+      "x2": 481.0,
+      "y2": 335.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 565.0,
+      "y": 297.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 44.0,
+      "y1": 453.0,
+      "x2": 104.0,
+      "y2": 453.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 205.0,
+      "cy": 458.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 335.0,
+      "y1": 413.0,
+      "x2": 335.0,
+      "y2": 473.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 446.0,
+      "cy": 454.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 553.0,
+      "y1": 443.0,
+      "x2": 613.0,
+      "y2": 443.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 47.0,
+      "y": 539.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 199.0,
+      "y1": 544.0,
+      "x2": 199.0,
+      "y2": 604.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 307.0,
+      "y": 536.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 456.0,
+      "y1": 546.0,
+      "x2": 456.0,
+      "y2": 606.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 548.0,
+      "y": 553.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    }
+  ],
+  "entities": {
+    "defender": {
+      "center_px": [
+        169.2028864872985,
+        235.42778291985337
+      ],
+      "theta_deg": 71.57799966865063
+    },
+    "attacker": {
+      "center_px": [
+        118.14492065686923,
+        389.1736702461188
+      ],
+      "theta_deg": 353.1204858714904
+    },
+    "target": {
+      "center_px": [
+        281.8700238244818,
+        152.25958606400218
+      ],
+      "theta_deg": 0.0
+    }
+  },
+  "objects": {
+    "floor": {
+      "alias": "TrackMaker_turtlebot4_floor"
+    },
+    "target": {
+      "alias": "TrackMaker_target"
+    },
+    "obstacle_001": {
+      "alias": "TrackMaker_turtlebot4_obstacle_001"
+    },
+    "obstacle_002": {
+      "alias": "TrackMaker_turtlebot4_obstacle_002"
+    },
+    "obstacle_003": {
+      "alias": "TrackMaker_turtlebot4_obstacle_003"
+    },
+    "obstacle_004": {
+      "alias": "TrackMaker_turtlebot4_obstacle_004"
+    },
+    "obstacle_005": {
+      "alias": "TrackMaker_turtlebot4_obstacle_005"
+    },
+    "obstacle_006": {
+      "alias": "TrackMaker_turtlebot4_obstacle_006"
+    },
+    "obstacle_007": {
+      "alias": "TrackMaker_turtlebot4_obstacle_007"
+    },
+    "obstacle_008": {
+      "alias": "TrackMaker_turtlebot4_obstacle_008"
+    },
+    "obstacle_009": {
+      "alias": "TrackMaker_turtlebot4_obstacle_009"
+    },
+    "obstacle_010": {
+      "alias": "TrackMaker_turtlebot4_obstacle_010"
+    },
+    "obstacle_011": {
+      "alias": "TrackMaker_turtlebot4_obstacle_011"
+    },
+    "obstacle_012": {
+      "alias": "TrackMaker_turtlebot4_obstacle_012"
+    },
+    "obstacle_013": {
+      "alias": "TrackMaker_turtlebot4_obstacle_013"
+    },
+    "obstacle_014": {
+      "alias": "TrackMaker_turtlebot4_obstacle_014"
+    },
+    "obstacle_015": {
+      "alias": "TrackMaker_turtlebot4_obstacle_015"
+    },
+    "obstacle_016": {
+      "alias": "TrackMaker_turtlebot4_obstacle_016"
+    },
+    "obstacle_017": {
+      "alias": "TrackMaker_turtlebot4_obstacle_017"
+    },
+    "obstacle_018": {
+      "alias": "TrackMaker_turtlebot4_obstacle_018"
+    },
+    "obstacle_019": {
+      "alias": "TrackMaker_turtlebot4_obstacle_019"
+    },
+    "obstacle_020": {
+      "alias": "TrackMaker_turtlebot4_obstacle_020"
+    },
+    "obstacle_021": {
+      "alias": "TrackMaker_turtlebot4_obstacle_021"
+    },
+    "obstacle_022": {
+      "alias": "TrackMaker_turtlebot4_obstacle_022"
+    },
+    "obstacle_023": {
+      "alias": "TrackMaker_turtlebot4_obstacle_023"
+    },
+    "obstacle_024": {
+      "alias": "TrackMaker_turtlebot4_obstacle_024"
+    },
+    "obstacle_025": {
+      "alias": "TrackMaker_turtlebot4_obstacle_025"
+    },
+    "obstacle_026": {
+      "alias": "TrackMaker_turtlebot4_obstacle_026"
+    },
+    "obstacle_027": {
+      "alias": "TrackMaker_turtlebot4_obstacle_027"
+    },
+    "obstacle_028": {
+      "alias": "TrackMaker_turtlebot4_obstacle_028"
+    },
+    "obstacle_029": {
+      "alias": "TrackMaker_turtlebot4_obstacle_029"
+    },
+    "defender": {
+      "alias": "TrackMaker_defender"
+    },
+    "defender_base": {
+      "alias": "TrackMaker_defender_base_link"
+    },
+    "defender_collision_proxy": {
+      "alias": "TrackMaker_defender_collision_proxy"
+    },
+    "defender_lidar": {
+      "alias": "TrackMaker_defender_rplidar_sensor"
+    },
+    "defender_vision": {
+      "alias": "TrackMaker_defender_oakd_rgb_sensor"
+    },
+    "attacker": {
+      "alias": "TrackMaker_attacker"
+    },
+    "attacker_base": {
+      "alias": "TrackMaker_attacker_base_link"
+    },
+    "attacker_collision_proxy": {
+      "alias": "TrackMaker_attacker_collision_proxy"
+    },
+    "attacker_lidar": {
+      "alias": "TrackMaker_attacker_rplidar_sensor"
+    },
+    "attacker_vision": {
+      "alias": "TrackMaker_attacker_oakd_rgb_sensor"
+    }
+  },
+  "robots": {
+    "defender": {
+      "root": "TrackMaker_defender",
+      "base_link": "TrackMaker_defender_base_link",
+      "collision_proxy": "TrackMaker_defender_collision_proxy",
+      "left_wheel_joint": "TrackMaker_defender_left_wheel_joint",
+      "right_wheel_joint": "TrackMaker_defender_right_wheel_joint",
+      "lidar_link": "TrackMaker_defender_rplidar_link",
+      "rgb_camera_frame": "TrackMaker_defender_oakd_rgb_camera_frame",
+      "lidar_sensor": "TrackMaker_defender_rplidar_sensor",
+      "vision_sensor": "TrackMaker_defender_oakd_rgb_sensor",
+      "wheel_radius_m": 0.035750000000000004,
+      "wheel_separation_m": 0.233
+    },
+    "attacker": {
+      "root": "TrackMaker_attacker",
+      "base_link": "TrackMaker_attacker_base_link",
+      "collision_proxy": "TrackMaker_attacker_collision_proxy",
+      "left_wheel_joint": "TrackMaker_attacker_left_wheel_joint",
+      "right_wheel_joint": "TrackMaker_attacker_right_wheel_joint",
+      "lidar_link": "TrackMaker_attacker_rplidar_link",
+      "rgb_camera_frame": "TrackMaker_attacker_oakd_rgb_camera_frame",
+      "lidar_sensor": "TrackMaker_attacker_rplidar_sensor",
+      "vision_sensor": "TrackMaker_attacker_oakd_rgb_sensor",
+      "wheel_radius_m": 0.035750000000000004,
+      "wheel_separation_m": 0.233
+    }
+  }
+}

@@ -1,0 +1,1 @@
+"""CoppeliaSim command-line tools."""
