@@ -1,0 +1,2 @@
+"""Defender-specific training utilities."""
+

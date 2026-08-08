@@ -1,0 +1,12 @@
+# Core CPU runtime for Gym TAD training and evaluation.
+cvxpy>=1.5,<2
+gymnasium>=0.29,<2
+matplotlib>=3.7,<4
+numba>=0.56,<1
+numpy>=1.23,<3
+Pillow>=8.4,<13
+psutil>=5.9,<8
+pygame>=2.6,<3
+ray>=2.10,<3
+tensorboard>=2.13,<3
+torch>=2.1,<3

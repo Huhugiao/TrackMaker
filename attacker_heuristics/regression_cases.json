@@ -1,0 +1,19 @@
+{
+  "source_stage": "round_03_frontier",
+  "cases": [
+    {
+      "policy": "geometry_feint_v3",
+      "defender": "rule_chase",
+      "seed": 182026,
+      "expected_outcome": "target_success",
+      "purpose": "geometry gate preserves a paired gain"
+    },
+    {
+      "policy": "occlusion_dash_v2",
+      "defender": "rule_protect",
+      "seed": 182018,
+      "expected_outcome": "target_success",
+      "purpose": "bounded shadow policy retains rule-protect specialist behavior"
+    }
+  ]
+}

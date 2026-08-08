@@ -1,0 +1,16 @@
+*.bak2
+*.pyc
+*.nbi
+*.nbc
+*.log
+events.out.tfevents.*
+*.gif
+*.png
+__pycache__/
+.vscode/
+outputs/
+coppeliasim/scenes/build_turtlebot4_scene.lua
+coppeliasim/scenes/*.status.txt
+.trae/
+log/
+plot/pursuer
