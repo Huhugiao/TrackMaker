@@ -1,0 +1,118 @@
+{
+  "run_name": "baseline_rl_07-21-10-51",
+  "role": "defender",
+  "policy_name": "protect",
+  "skill_mode": "baseline",
+  "training_mode": "rl",
+  "defender_reward_style": null,
+  "defender_reward_styles": [],
+  "network_type": "mlp_ctde",
+  "seed": 20260721,
+  "train_use_random_seed": true,
+  "eval_use_random_seed": false,
+  "eval_fixed_seed": 187000,
+  "attacker_pool": [
+    "heuristic_default",
+    "heuristic_evasive",
+    "heuristic_geometry_feint_v3",
+    "heuristic_occlusion_dash_v2",
+    "rl_ppo_goal_rush",
+    "rl_ppo_evasive"
+  ],
+  "attacker_weights": [
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666
+  ],
+  "attacker_weight_schedule": null,
+  "attacker_weight_switch_steps": null,
+  "learned_attacker_alias": "attacker_rl",
+  "learned_attacker_checkpoint": null,
+  "learned_attacker_specs": {
+    "rl_ppo_evasive": {
+      "checkpoint": "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/attacker_nmn_mlp_diversity_continuation_20260715_120331/best_evasive.pth",
+      "reward_style": "evasive"
+    },
+    "rl_ppo_goal_rush": {
+      "checkpoint": "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/attacker_nmn_mlp_diversity_continuation_20260715_120331/best_goal_rush.pth",
+      "reward_style": "goal_rush"
+    }
+  },
+  "programmatic_attacker_specs": {
+    "heuristic_default": {
+      "registry_policy": "default",
+      "source": "attacker_heuristics.registry"
+    },
+    "heuristic_evasive": {
+      "registry_policy": "evasive",
+      "source": "attacker_heuristics.registry"
+    },
+    "heuristic_geometry_feint_v3": {
+      "registry_policy": "geometry_feint_v3",
+      "source": "attacker_heuristics.registry"
+    },
+    "heuristic_occlusion_dash_v2": {
+      "registry_policy": "occlusion_dash_v2",
+      "source": "attacker_heuristics.registry"
+    }
+  },
+  "environment": {
+    "reward_mode": "baseline",
+    "episode_len": 300,
+    "attacker_speed": 2.0,
+    "defender_speed": 2.6,
+    "defender_collision_outcome": "draw_in_formal_evaluation",
+    "reward_contract": {
+      "step_penalty": -0.04,
+      "defender_capture": 30.0,
+      "target_breach": -20.0,
+      "defender_collision": -20.0,
+      "pursuit_progress_scale": 10.0,
+      "target_progress_scale": 20.0,
+      "timeout": "defender_win_no_terminal_bonus"
+    }
+  },
+  "training": {
+    "total_steps": 30000000,
+    "num_envs": 6,
+    "rollout_steps": 2048,
+    "tbptt_steps": 128,
+    "minibatch_size": 4096,
+    "epochs": 6,
+    "learning_rate": 0.001,
+    "learning_rate_final": 0.0003,
+    "learning_rate_schedule": "cosine",
+    "gamma": 0.95,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "value_clip_range": 0.2,
+    "entropy_coef": 0.02,
+    "best_model_metric": "win",
+    "reward_normalization": true,
+    "dual_gru_log_std": null,
+    "fresh_retrain": false,
+    "retrain": false,
+    "restore_checkpoint": null,
+    "early_stop_enabled": false,
+    "early_stop_min_steps": 0,
+    "early_stop_patience": 5,
+    "early_stop_min_delta": 0.0
+  },
+  "evaluation": {
+    "interval": 250000,
+    "episodes": 48,
+    "balanced_attackers": [
+      "heuristic_default",
+      "heuristic_evasive",
+      "heuristic_geometry_feint_v3",
+      "heuristic_occlusion_dash_v2",
+      "rl_ppo_goal_rush",
+      "rl_ppo_evasive"
+    ],
+    "balanced_episodes": 32,
+    "balanced_metric": "min_win"
+  }
+}

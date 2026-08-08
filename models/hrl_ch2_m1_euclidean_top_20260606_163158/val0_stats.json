@@ -1,0 +1,23 @@
+{
+  "rows": 902,
+  "labels": {
+    "chase": 626,
+    "baseline": 276
+  },
+  "rollout_counts": {
+    "baseline": 5119,
+    "chase": 4897
+  },
+  "outcomes": {
+    "win": 38,
+    "capture": 29,
+    "collision": 2,
+    "attacker_capture": 8,
+    "timeout_win": 9
+  },
+  "avg_utilities": {
+    "baseline": -8.803387882595697,
+    "chase": -8.57829015814356
+  },
+  "episodes": 48
+}

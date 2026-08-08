@@ -1,0 +1,1280 @@
+[
+  {
+    "iter": 1,
+    "loss": 0.6904873649279276,
+    "replay_rows": 1517,
+    "replay_labels": {
+      "1": 860,
+      "0": 657
+    },
+    "train_stats": {
+      "rows": 1517,
+      "labels": {
+        "chase": 860,
+        "baseline": 657
+      },
+      "rollout_counts": {
+        "baseline": 9454,
+        "chase": 7850
+      },
+      "outcomes": {
+        "win": 52,
+        "capture": 33,
+        "collision": 5,
+        "attacker_capture": 23,
+        "timeout_win": 19
+      },
+      "avg_utilities": {
+        "baseline": -10.49893526572142,
+        "chase": -10.095574836868522
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.6413974950560316,
+      "pred": {
+        "1": 932,
+        "0": 585
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6618705035971223,
+        "advantage:disadvantage": 0.6991150442477876,
+        "disadvantage:disadvantage": 0.6073752711496746,
+        "advantage:advantage": 0.6096256684491979,
+        "disadvantage:advantage": 0.6415929203539823
+      },
+      "by_margin": {
+        "risk": 0.6188271604938271,
+        "mid": 0.5679611650485437,
+        "safe": 0.6862745098039216
+      }
+    },
+    "val_eval": {
+      "acc": 0.573170731707317,
+      "pred": {
+        "0": 325,
+        "1": 577
+      },
+      "by_regime": {
+        "advantage:advantage": 0.49333333333333335,
+        "disadvantage:disadvantage": 0.562874251497006,
+        "neutral:neutral": 0.6386292834890965,
+        "advantage:disadvantage": 0.4918032786885246,
+        "disadvantage:advantage": 0.5915492957746479
+      },
+      "by_margin": {
+        "safe": 0.6210268948655256,
+        "risk": 0.5099337748344371,
+        "mid": 0.5706806282722513
+      }
+    },
+    "score": 0.5592017738359202
+  },
+  {
+    "iter": 2,
+    "loss": 0.6440470218658447,
+    "replay_rows": 3034,
+    "replay_labels": {
+      "1": 2040,
+      "0": 994
+    },
+    "train_stats": {
+      "rows": 1517,
+      "labels": {
+        "baseline": 337,
+        "chase": 1180
+      },
+      "rollout_counts": {
+        "baseline": 6427,
+        "chase": 9499
+      },
+      "outcomes": {
+        "win": 61,
+        "capture": 54,
+        "collision": 8,
+        "attacker_capture": 11,
+        "timeout_win": 7
+      },
+      "avg_utilities": {
+        "baseline": -9.689707504532283,
+        "chase": -8.63539289382801
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.6901779828609097,
+      "pred": {
+        "1": 1964,
+        "0": 1070
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6956521739130435,
+        "advantage:disadvantage": 0.7241379310344828,
+        "disadvantage:disadvantage": 0.680939226519337,
+        "advantage:advantage": 0.6834862385321101,
+        "disadvantage:advantage": 0.6774193548387096
+      },
+      "by_margin": {
+        "risk": 0.6376404494382022,
+        "mid": 0.6520547945205479,
+        "safe": 0.7339163023110555
+      }
+    },
+    "val_eval": {
+      "acc": 0.6053215077605322,
+      "pred": {
+        "0": 310,
+        "1": 592
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5533333333333333,
+        "disadvantage:disadvantage": 0.5688622754491018,
+        "neutral:neutral": 0.6915887850467289,
+        "advantage:disadvantage": 0.48360655737704916,
+        "disadvantage:advantage": 0.6126760563380281
+      },
+      "by_margin": {
+        "safe": 0.6723716381418093,
+        "risk": 0.5066225165562914,
+        "mid": 0.6178010471204188
+      }
+    },
+    "score": 0.589689578713969
+  },
+  {
+    "iter": 3,
+    "loss": 0.6342343240976334,
+    "replay_rows": 4537,
+    "replay_labels": {
+      "1": 3190,
+      "0": 1347
+    },
+    "train_stats": {
+      "rows": 1503,
+      "labels": {
+        "chase": 1150,
+        "baseline": 353
+      },
+      "rollout_counts": {
+        "chase": 8839,
+        "baseline": 7490
+      },
+      "outcomes": {
+        "win": 57,
+        "capture": 43,
+        "collision": 9,
+        "attacker_capture": 14,
+        "timeout_win": 14
+      },
+      "avg_utilities": {
+        "baseline": -9.103412538247817,
+        "chase": -8.27833905348608
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.6748953052677981,
+      "pred": {
+        "1": 2793,
+        "0": 1744
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6612903225806451,
+        "advantage:disadvantage": 0.7405582922824302,
+        "disadvantage:disadvantage": 0.6882168925964547,
+        "advantage:advantage": 0.6518737672583826,
+        "disadvantage:advantage": 0.6573426573426573
+      },
+      "by_margin": {
+        "risk": 0.6201716738197425,
+        "mid": 0.6467486818980668,
+        "safe": 0.7108949416342413
+      }
+    },
+    "val_eval": {
+      "acc": 0.606430155210643,
+      "pred": {
+        "1": 569,
+        "0": 333
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5533333333333333,
+        "disadvantage:disadvantage": 0.562874251497006,
+        "neutral:neutral": 0.6915887850467289,
+        "advantage:disadvantage": 0.5081967213114754,
+        "disadvantage:advantage": 0.6056338028169014
+      },
+      "by_margin": {
+        "safe": 0.6723716381418093,
+        "risk": 0.5165562913907285,
+        "mid": 0.6073298429319371
+      }
+    },
+    "score": 0.5933481152993348
+  },
+  {
+    "iter": 4,
+    "loss": 0.6449894377340873,
+    "replay_rows": 5953,
+    "replay_labels": {
+      "1": 4175,
+      "0": 1778
+    },
+    "train_stats": {
+      "rows": 1416,
+      "labels": {
+        "chase": 985,
+        "baseline": 431
+      },
+      "rollout_counts": {
+        "baseline": 8107,
+        "chase": 8044
+      },
+      "outcomes": {
+        "win": 62,
+        "capture": 44,
+        "collision": 7,
+        "attacker_capture": 11,
+        "timeout_win": 18
+      },
+      "avg_utilities": {
+        "baseline": -9.376051557252676,
+        "chase": -8.490216441822355
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.6658827481941878,
+      "pred": {
+        "1": 3628,
+        "0": 2325
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6715749039692702,
+        "advantage:disadvantage": 0.73125,
+        "disadvantage:disadvantage": 0.6743083003952569,
+        "advantage:advantage": 0.6318114874815906,
+        "disadvantage:advantage": 0.6394628099173554
+      },
+      "by_margin": {
+        "risk": 0.5978809283551968,
+        "mid": 0.661498708010336,
+        "safe": 0.7091022833906787
+      }
+    },
+    "val_eval": {
+      "acc": 0.6119733924611973,
+      "pred": {
+        "1": 570,
+        "0": 332
+      },
+      "by_regime": {
+        "advantage:advantage": 0.58,
+        "disadvantage:disadvantage": 0.562874251497006,
+        "neutral:neutral": 0.6978193146417445,
+        "advantage:disadvantage": 0.5081967213114754,
+        "disadvantage:advantage": 0.5985915492957746
+      },
+      "by_margin": {
+        "safe": 0.6772616136919315,
+        "risk": 0.5331125827814569,
+        "mid": 0.5968586387434555
+      }
+    },
+    "score": 0.598780487804878
+  },
+  {
+    "iter": 5,
+    "loss": 0.6426042404949156,
+    "replay_rows": 7428,
+    "replay_labels": {
+      "1": 5309,
+      "0": 2119
+    },
+    "train_stats": {
+      "rows": 1475,
+      "labels": {
+        "baseline": 341,
+        "chase": 1134
+      },
+      "rollout_counts": {
+        "baseline": 7688,
+        "chase": 9058
+      },
+      "outcomes": {
+        "win": 65,
+        "capture": 48,
+        "collision": 4,
+        "attacker_capture": 11,
+        "timeout_win": 17
+      },
+      "avg_utilities": {
+        "baseline": -8.793820985793456,
+        "chase": -8.001486672567141
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.6602046311254712,
+      "pred": {
+        "1": 4447,
+        "0": 2981
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6648568608094768,
+        "advantage:disadvantage": 0.722457627118644,
+        "disadvantage:disadvantage": 0.6844181459566075,
+        "advantage:advantage": 0.6159509202453988,
+        "disadvantage:advantage": 0.6350420811017597
+      },
+      "by_margin": {
+        "risk": 0.5983298538622129,
+        "mid": 0.6497005988023952,
+        "safe": 0.6995782684197469
+      }
+    },
+    "val_eval": {
+      "acc": 0.6042128603104213,
+      "pred": {
+        "1": 551,
+        "0": 351
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5733333333333334,
+        "disadvantage:disadvantage": 0.5568862275449101,
+        "neutral:neutral": 0.6791277258566978,
+        "advantage:disadvantage": 0.5163934426229508,
+        "disadvantage:advantage": 0.5985915492957746
+      },
+      "by_margin": {
+        "safe": 0.6650366748166259,
+        "risk": 0.5496688741721855,
+        "mid": 0.5602094240837696
+      }
+    },
+    "score": 0.5931263858093127
+  },
+  {
+    "iter": 6,
+    "loss": 0.6434358480974292,
+    "replay_rows": 8902,
+    "replay_labels": {
+      "1": 6343,
+      "0": 2559
+    },
+    "train_stats": {
+      "rows": 1474,
+      "labels": {
+        "baseline": 440,
+        "chase": 1034
+      },
+      "rollout_counts": {
+        "baseline": 6934,
+        "chase": 8456
+      },
+      "outcomes": {
+        "win": 58,
+        "capture": 47,
+        "collision": 3,
+        "attacker_capture": 19,
+        "timeout_win": 11
+      },
+      "avg_utilities": {
+        "baseline": -9.355023800756816,
+        "chase": -8.552051940762576
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.648375,
+      "pred": {
+        "1": 4726,
+        "0": 3274
+      },
+      "by_regime": {
+        "advantage:disadvantage": 0.6964912280701754,
+        "advantage:advantage": 0.631882538017829,
+        "disadvantage:disadvantage": 0.6594594594594595,
+        "disadvantage:advantage": 0.6157337367624811,
+        "neutral:neutral": 0.6499302649930265
+      },
+      "by_margin": {
+        "safe": 0.6941604180867984,
+        "risk": 0.578408195429472,
+        "mid": 0.6258246936852027
+      }
+    },
+    "val_eval": {
+      "acc": 0.6031042128603105,
+      "pred": {
+        "1": 510,
+        "0": 392
+      },
+      "by_regime": {
+        "advantage:advantage": 0.56,
+        "disadvantage:disadvantage": 0.562874251497006,
+        "neutral:neutral": 0.6542056074766355,
+        "advantage:disadvantage": 0.5819672131147541,
+        "disadvantage:advantage": 0.5985915492957746
+      },
+      "by_margin": {
+        "safe": 0.6503667481662592,
+        "risk": 0.5562913907284768,
+        "mid": 0.5759162303664922
+      }
+    },
+    "score": 0.5965631929046563
+  },
+  {
+    "iter": 7,
+    "loss": 0.6460104003097071,
+    "replay_rows": 10377,
+    "replay_labels": {
+      "1": 7460,
+      "0": 2917
+    },
+    "train_stats": {
+      "rows": 1475,
+      "labels": {
+        "baseline": 358,
+        "chase": 1117
+      },
+      "rollout_counts": {
+        "baseline": 7698,
+        "chase": 8486
+      },
+      "outcomes": {
+        "win": 63,
+        "capture": 47,
+        "collision": 8,
+        "attacker_capture": 9,
+        "timeout_win": 16
+      },
+      "avg_utilities": {
+        "baseline": -9.422943408814387,
+        "chase": -8.307127219882293
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.641875,
+      "pred": {
+        "1": 4744,
+        "0": 3256
+      },
+      "by_regime": {
+        "disadvantage:disadvantage": 0.6549560853199499,
+        "disadvantage:advantage": 0.6327467482785004,
+        "advantage:advantage": 0.619644723092999,
+        "neutral:neutral": 0.6362740266140956,
+        "advantage:disadvantage": 0.6807958477508651
+      },
+      "by_margin": {
+        "risk": 0.5502183406113537,
+        "mid": 0.610636277302944,
+        "safe": 0.7014453477868112
+      }
+    },
+    "val_eval": {
+      "acc": 0.5953436807095344,
+      "pred": {
+        "1": 497,
+        "0": 405
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5666666666666667,
+        "disadvantage:disadvantage": 0.5808383233532934,
+        "neutral:neutral": 0.6355140186915887,
+        "advantage:disadvantage": 0.5573770491803278,
+        "disadvantage:advantage": 0.5845070422535211
+      },
+      "by_margin": {
+        "safe": 0.628361858190709,
+        "risk": 0.5629139072847682,
+        "mid": 0.5759162303664922
+      }
+    },
+    "score": 0.5902439024390244
+  },
+  {
+    "iter": 8,
+    "loss": 0.644448733457955,
+    "replay_rows": 11852,
+    "replay_labels": {
+      "1": 8474,
+      "0": 3378
+    },
+    "train_stats": {
+      "rows": 1475,
+      "labels": {
+        "baseline": 461,
+        "chase": 1014
+      },
+      "rollout_counts": {
+        "baseline": 7528,
+        "chase": 8276
+      },
+      "outcomes": {
+        "win": 63,
+        "capture": 49,
+        "collision": 2,
+        "attacker_capture": 15,
+        "timeout_win": 14
+      },
+      "avg_utilities": {
+        "baseline": -9.433533198533752,
+        "chase": -8.60129213991638
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.64475,
+      "pred": {
+        "0": 3242,
+        "1": 4758
+      },
+      "by_regime": {
+        "disadvantage:disadvantage": 0.6452425960932577,
+        "neutral:neutral": 0.6500732064421669,
+        "advantage:disadvantage": 0.6846275752773375,
+        "advantage:advantage": 0.6308108108108108,
+        "disadvantage:advantage": 0.615814696485623
+      },
+      "by_margin": {
+        "risk": 0.5495720399429387,
+        "mid": 0.6097560975609756,
+        "safe": 0.7184019370460049
+      }
+    },
+    "val_eval": {
+      "acc": 0.6053215077605322,
+      "pred": {
+        "1": 506,
+        "0": 396
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5666666666666667,
+        "disadvantage:disadvantage": 0.562874251497006,
+        "neutral:neutral": 0.6542056074766355,
+        "advantage:disadvantage": 0.5737704918032787,
+        "disadvantage:advantage": 0.6126760563380281
+      },
+      "by_margin": {
+        "safe": 0.6430317848410758,
+        "risk": 0.5662251655629139,
+        "mid": 0.5863874345549738
+      }
+    },
+    "score": 0.5992239467849224
+  },
+  {
+    "iter": 9,
+    "loss": 0.6397099824178787,
+    "replay_rows": 13255,
+    "replay_labels": {
+      "1": 9493,
+      "0": 3762
+    },
+    "train_stats": {
+      "rows": 1403,
+      "labels": {
+        "chase": 1019,
+        "baseline": 384
+      },
+      "rollout_counts": {
+        "chase": 8023,
+        "baseline": 7302
+      },
+      "outcomes": {
+        "win": 54,
+        "capture": 41,
+        "collision": 12,
+        "attacker_capture": 14,
+        "timeout_win": 13
+      },
+      "avg_utilities": {
+        "baseline": -9.48880699065362,
+        "chase": -8.80133337944346
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.653,
+      "pred": {
+        "1": 4732,
+        "0": 3268
+      },
+      "by_regime": {
+        "advantage:disadvantage": 0.714759535655058,
+        "advantage:advantage": 0.631578947368421,
+        "disadvantage:disadvantage": 0.6338535414165666,
+        "disadvantage:advantage": 0.6473429951690821,
+        "neutral:neutral": 0.655821047280122
+      },
+      "by_margin": {
+        "risk": 0.5689655172413793,
+        "safe": 0.7173144876325088,
+        "mid": 0.6103012633624878
+      }
+    },
+    "val_eval": {
+      "acc": 0.6031042128603105,
+      "pred": {
+        "1": 488,
+        "0": 414
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5466666666666666,
+        "disadvantage:disadvantage": 0.592814371257485,
+        "neutral:neutral": 0.632398753894081,
+        "advantage:disadvantage": 0.5983606557377049,
+        "disadvantage:advantage": 0.6126760563380281
+      },
+      "by_margin": {
+        "safe": 0.6259168704156479,
+        "risk": 0.5827814569536424,
+        "mid": 0.5863874345549738
+      }
+    },
+    "score": 0.5990022172949002
+  },
+  {
+    "iter": 10,
+    "loss": 0.6321512661971055,
+    "replay_rows": 14687,
+    "replay_labels": {
+      "1": 10474,
+      "0": 4213
+    },
+    "train_stats": {
+      "rows": 1432,
+      "labels": {
+        "chase": 981,
+        "baseline": 451
+      },
+      "rollout_counts": {
+        "baseline": 6600,
+        "chase": 8129
+      },
+      "outcomes": {
+        "win": 52,
+        "capture": 43,
+        "collision": 7,
+        "attacker_capture": 21,
+        "timeout_win": 9
+      },
+      "avg_utilities": {
+        "baseline": -9.792592268635584,
+        "chase": -9.19137361180266
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.658125,
+      "pred": {
+        "0": 3303,
+        "1": 4697
+      },
+      "by_regime": {
+        "disadvantage:advantage": 0.6565377532228361,
+        "neutral:neutral": 0.662008281573499,
+        "advantage:advantage": 0.643251379829403,
+        "disadvantage:disadvantage": 0.6434977578475336,
+        "advantage:disadvantage": 0.6995850622406639
+      },
+      "by_margin": {
+        "mid": 0.6087420042643923,
+        "safe": 0.7249183387774149,
+        "risk": 0.571685878962536
+      }
+    },
+    "val_eval": {
+      "acc": 0.6053215077605322,
+      "pred": {
+        "1": 492,
+        "0": 410
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5333333333333333,
+        "disadvantage:disadvantage": 0.6047904191616766,
+        "neutral:neutral": 0.6417445482866043,
+        "advantage:disadvantage": 0.5901639344262295,
+        "disadvantage:advantage": 0.6126760563380281
+      },
+      "by_margin": {
+        "safe": 0.6405867970660146,
+        "risk": 0.5695364238410596,
+        "mid": 0.5863874345549738
+      }
+    },
+    "score": 0.6007760532150777
+  },
+  {
+    "iter": 11,
+    "loss": 0.6354624333362731,
+    "replay_rows": 16108,
+    "replay_labels": {
+      "1": 11442,
+      "0": 4666
+    },
+    "train_stats": {
+      "rows": 1421,
+      "labels": {
+        "chase": 968,
+        "baseline": 453
+      },
+      "rollout_counts": {
+        "baseline": 7103,
+        "chase": 8031
+      },
+      "outcomes": {
+        "win": 51,
+        "capture": 39,
+        "collision": 9,
+        "attacker_capture": 20,
+        "timeout_win": 12
+      },
+      "avg_utilities": {
+        "baseline": -9.68917332502134,
+        "chase": -9.135434507690647
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.64725,
+      "pred": {
+        "1": 4512,
+        "0": 3488
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6483116883116883,
+        "advantage:advantage": 0.6400198609731876,
+        "disadvantage:disadvantage": 0.6355785837651122,
+        "disadvantage:advantage": 0.6375432525951558,
+        "advantage:disadvantage": 0.684931506849315
+      },
+      "by_margin": {
+        "safe": 0.7109485606418122,
+        "risk": 0.5713271823988645,
+        "mid": 0.5879237288135594
+      }
+    },
+    "val_eval": {
+      "acc": 0.6008869179600886,
+      "pred": {
+        "1": 476,
+        "0": 426
+      },
+      "by_regime": {
+        "advantage:advantage": 0.52,
+        "disadvantage:disadvantage": 0.6287425149700598,
+        "neutral:neutral": 0.632398753894081,
+        "advantage:disadvantage": 0.5819672131147541,
+        "disadvantage:advantage": 0.5985915492957746
+      },
+      "by_margin": {
+        "safe": 0.6332518337408313,
+        "risk": 0.5728476821192053,
+        "mid": 0.5759162303664922
+      }
+    },
+    "score": 0.5981152993348114
+  },
+  {
+    "iter": 12,
+    "loss": 0.6299728844044865,
+    "replay_rows": 17568,
+    "replay_labels": {
+      "1": 12402,
+      "0": 5166
+    },
+    "train_stats": {
+      "rows": 1460,
+      "labels": {
+        "baseline": 500,
+        "chase": 960
+      },
+      "rollout_counts": {
+        "baseline": 7720,
+        "chase": 7731
+      },
+      "outcomes": {
+        "win": 52,
+        "capture": 42,
+        "collision": 5,
+        "attacker_capture": 23,
+        "timeout_win": 10
+      },
+      "avg_utilities": {
+        "baseline": -9.802655089574502,
+        "chase": -9.24272425526863
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.650125,
+      "pred": {
+        "1": 4484,
+        "0": 3516
+      },
+      "by_regime": {
+        "disadvantage:disadvantage": 0.6501440922190201,
+        "disadvantage:advantage": 0.6208026208026208,
+        "neutral:neutral": 0.6474358974358975,
+        "advantage:disadvantage": 0.6814988290398126,
+        "advantage:advantage": 0.6504494976203067
+      },
+      "by_margin": {
+        "risk": 0.5803728455856489,
+        "mid": 0.5878787878787879,
+        "safe": 0.7125029997600192
+      }
+    },
+    "val_eval": {
+      "acc": 0.6097560975609756,
+      "pred": {
+        "1": 484,
+        "0": 418
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5466666666666666,
+        "disadvantage:disadvantage": 0.6287425149700598,
+        "neutral:neutral": 0.6386292834890965,
+        "advantage:disadvantage": 0.5983606557377049,
+        "disadvantage:advantage": 0.5985915492957746
+      },
+      "by_margin": {
+        "safe": 0.6528117359413202,
+        "risk": 0.5629139072847682,
+        "mid": 0.5916230366492147
+      }
+    },
+    "score": 0.6060975609756097
+  },
+  {
+    "iter": 13,
+    "loss": 0.6208334906895956,
+    "replay_rows": 19075,
+    "replay_labels": {
+      "1": 13525,
+      "0": 5550
+    },
+    "train_stats": {
+      "rows": 1507,
+      "labels": {
+        "baseline": 384,
+        "chase": 1123
+      },
+      "rollout_counts": {
+        "baseline": 7335,
+        "chase": 8951
+      },
+      "outcomes": {
+        "win": 58,
+        "capture": 46,
+        "collision": 9,
+        "attacker_capture": 13,
+        "timeout_win": 12
+      },
+      "avg_utilities": {
+        "baseline": -9.0008767183253,
+        "chase": -8.154005767150625
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.6505,
+      "pred": {
+        "1": 4201,
+        "0": 3799
+      },
+      "by_regime": {
+        "disadvantage:disadvantage": 0.6737674984783932,
+        "disadvantage:advantage": 0.6070336391437309,
+        "neutral:neutral": 0.6254526642524573,
+        "advantage:advantage": 0.651010376843255,
+        "advantage:disadvantage": 0.7019455252918287
+      },
+      "by_margin": {
+        "safe": 0.7043979812545061,
+        "risk": 0.5991471215351812,
+        "mid": 0.5726829268292682
+      }
+    },
+    "val_eval": {
+      "acc": 0.582039911308204,
+      "pred": {
+        "1": 465,
+        "0": 437
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5266666666666666,
+        "disadvantage:disadvantage": 0.6287425149700598,
+        "neutral:neutral": 0.5794392523364486,
+        "advantage:disadvantage": 0.5819672131147541,
+        "disadvantage:advantage": 0.5915492957746479
+      },
+      "by_margin": {
+        "safe": 0.6308068459657702,
+        "risk": 0.5529801324503312,
+        "mid": 0.5235602094240838
+      }
+    },
+    "score": 0.5804878048780487
+  },
+  {
+    "iter": 14,
+    "loss": 0.6060539946377834,
+    "replay_rows": 20544,
+    "replay_labels": {
+      "1": 14547,
+      "0": 5997
+    },
+    "train_stats": {
+      "rows": 1469,
+      "labels": {
+        "baseline": 447,
+        "chase": 1022
+      },
+      "rollout_counts": {
+        "baseline": 7994,
+        "chase": 8794
+      },
+      "outcomes": {
+        "win": 61,
+        "capture": 45,
+        "collision": 4,
+        "attacker_capture": 15,
+        "timeout_win": 16
+      },
+      "avg_utilities": {
+        "baseline": -9.530907368872272,
+        "chase": -8.585833407867598
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.672125,
+      "pred": {
+        "1": 4160,
+        "0": 3840
+      },
+      "by_regime": {
+        "neutral:neutral": 0.6316622691292876,
+        "advantage:disadvantage": 0.726800296956199,
+        "disadvantage:disadvantage": 0.7131449631449631,
+        "advantage:advantage": 0.6663135593220338,
+        "disadvantage:advantage": 0.6296296296296297
+      },
+      "by_margin": {
+        "safe": 0.7250660898822399,
+        "risk": 0.6310122038765255,
+        "mid": 0.5716999050332384
+      }
+    },
+    "val_eval": {
+      "acc": 0.5853658536585366,
+      "pred": {
+        "1": 456,
+        "0": 446
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5533333333333333,
+        "disadvantage:disadvantage": 0.6347305389221557,
+        "neutral:neutral": 0.5856697819314641,
+        "advantage:disadvantage": 0.5983606557377049,
+        "disadvantage:advantage": 0.5492957746478874
+      },
+      "by_margin": {
+        "safe": 0.6185819070904646,
+        "risk": 0.5695364238410596,
+        "mid": 0.5392670157068062
+      }
+    },
+    "score": 0.5848115299334811
+  },
+  {
+    "iter": 15,
+    "loss": 0.5900880379238348,
+    "replay_rows": 22099,
+    "replay_labels": {
+      "1": 15728,
+      "0": 6371
+    },
+    "train_stats": {
+      "rows": 1555,
+      "labels": {
+        "baseline": 374,
+        "chase": 1181
+      },
+      "rollout_counts": {
+        "chase": 8679,
+        "baseline": 8333
+      },
+      "outcomes": {
+        "win": 64,
+        "capture": 50,
+        "collision": 7,
+        "attacker_capture": 9,
+        "timeout_win": 14
+      },
+      "avg_utilities": {
+        "baseline": -8.921370102258793,
+        "chase": -8.205067180767747
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.667625,
+      "pred": {
+        "1": 4059,
+        "0": 3941
+      },
+      "by_regime": {
+        "advantage:disadvantage": 0.7301829268292683,
+        "advantage:advantage": 0.6703786191536748,
+        "disadvantage:advantage": 0.6243727598566309,
+        "neutral:neutral": 0.6264690853346959,
+        "disadvantage:disadvantage": 0.7025974025974026
+      },
+      "by_margin": {
+        "safe": 0.7185376142488868,
+        "mid": 0.543557168784029,
+        "risk": 0.637020144431775
+      }
+    },
+    "val_eval": {
+      "acc": 0.5809312638580931,
+      "pred": {
+        "1": 424,
+        "0": 478
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5533333333333333,
+        "disadvantage:disadvantage": 0.6287425149700598,
+        "neutral:neutral": 0.5451713395638629,
+        "advantage:disadvantage": 0.639344262295082,
+        "disadvantage:advantage": 0.5845070422535211
+      },
+      "by_margin": {
+        "safe": 0.6014669926650367,
+        "risk": 0.5794701986754967,
+        "mid": 0.5392670157068062
+      }
+    },
+    "score": 0.5779379157427937
+  },
+  {
+    "iter": 16,
+    "loss": 0.5794871612616025,
+    "replay_rows": 23589,
+    "replay_labels": {
+      "1": 16822,
+      "0": 6767
+    },
+    "train_stats": {
+      "rows": 1490,
+      "labels": {
+        "chase": 1094,
+        "baseline": 396
+      },
+      "rollout_counts": {
+        "chase": 7728,
+        "baseline": 9770
+      },
+      "outcomes": {
+        "win": 59,
+        "capture": 39,
+        "collision": 7,
+        "attacker_capture": 14,
+        "timeout_win": 20
+      },
+      "avg_utilities": {
+        "baseline": -9.171457126877401,
+        "chase": -8.566867438986993
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.66925,
+      "pred": {
+        "0": 3750,
+        "1": 4250
+      },
+      "by_regime": {
+        "disadvantage:disadvantage": 0.71024512884978,
+        "advantage:disadvantage": 0.688135593220339,
+        "neutral:neutral": 0.6460513796384396,
+        "advantage:advantage": 0.6851211072664359,
+        "disadvantage:advantage": 0.6216798277099784
+      },
+      "by_margin": {
+        "risk": 0.6149921507064364,
+        "mid": 0.5650994575045208,
+        "safe": 0.7275655775425679
+      }
+    },
+    "val_eval": {
+      "acc": 0.5931263858093127,
+      "pred": {
+        "1": 437,
+        "0": 465
+      },
+      "by_regime": {
+        "advantage:advantage": 0.56,
+        "disadvantage:disadvantage": 0.6347305389221557,
+        "neutral:neutral": 0.573208722741433,
+        "advantage:disadvantage": 0.6147540983606558,
+        "disadvantage:advantage": 0.6056338028169014
+      },
+      "by_margin": {
+        "safe": 0.6112469437652812,
+        "risk": 0.5960264900662252,
+        "mid": 0.5497382198952879
+      }
+    },
+    "score": 0.5915742793791574
+  },
+  {
+    "iter": 17,
+    "loss": 0.5774474262281228,
+    "replay_rows": 24990,
+    "replay_labels": {
+      "1": 17833,
+      "0": 7157
+    },
+    "train_stats": {
+      "rows": 1401,
+      "labels": {
+        "chase": 1011,
+        "baseline": 390
+      },
+      "rollout_counts": {
+        "baseline": 6734,
+        "chase": 7263
+      },
+      "outcomes": {
+        "win": 54,
+        "capture": 48,
+        "collision": 12,
+        "attacker_capture": 14,
+        "timeout_win": 6
+      },
+      "avg_utilities": {
+        "baseline": -9.157242276353085,
+        "chase": -8.605417330738575
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.665375,
+      "pred": {
+        "0": 3808,
+        "1": 4192
+      },
+      "by_regime": {
+        "advantage:disadvantage": 0.6939338235294118,
+        "advantage:advantage": 0.6649365628604383,
+        "neutral:neutral": 0.647887323943662,
+        "disadvantage:advantage": 0.615815255423373,
+        "disadvantage:disadvantage": 0.7134033353922175
+      },
+      "by_margin": {
+        "risk": 0.6062811183454615,
+        "mid": 0.5654121863799283,
+        "safe": 0.727591855838989
+      }
+    },
+    "val_eval": {
+      "acc": 0.5986696230598669,
+      "pred": {
+        "1": 432,
+        "0": 470
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5733333333333334,
+        "disadvantage:disadvantage": 0.6347305389221557,
+        "neutral:neutral": 0.5638629283489096,
+        "advantage:disadvantage": 0.6311475409836066,
+        "disadvantage:advantage": 0.6338028169014085
+      },
+      "by_margin": {
+        "safe": 0.6161369193154034,
+        "risk": 0.5860927152317881,
+        "mid": 0.581151832460733
+      }
+    },
+    "score": 0.5965631929046563
+  },
+  {
+    "iter": 18,
+    "loss": 0.576462382423705,
+    "replay_rows": 26459,
+    "replay_labels": {
+      "1": 18946,
+      "0": 7513
+    },
+    "train_stats": {
+      "rows": 1469,
+      "labels": {
+        "chase": 1113,
+        "baseline": 356
+      },
+      "rollout_counts": {
+        "baseline": 8261,
+        "chase": 7959
+      },
+      "outcomes": {
+        "win": 58,
+        "capture": 45,
+        "collision": 10,
+        "attacker_capture": 12,
+        "timeout_win": 13
+      },
+      "avg_utilities": {
+        "baseline": -9.370942649919531,
+        "chase": -8.605259537518185
+      },
+      "episodes": 80
+    },
+    "train_eval": {
+      "acc": 0.671625,
+      "pred": {
+        "1": 4432,
+        "0": 3568
+      },
+      "by_regime": {
+        "disadvantage:advantage": 0.6516452074391988,
+        "advantage:disadvantage": 0.6793893129770993,
+        "neutral:neutral": 0.6575801052128168,
+        "disadvantage:disadvantage": 0.701617401003904,
+        "advantage:advantage": 0.6696279844530816
+      },
+      "by_margin": {
+        "safe": 0.738122044584553,
+        "mid": 0.5855689176688251,
+        "risk": 0.5899919289749799
+      }
+    },
+    "val_eval": {
+      "acc": 0.6031042128603105,
+      "pred": {
+        "1": 444,
+        "0": 458
+      },
+      "by_regime": {
+        "advantage:advantage": 0.5866666666666667,
+        "disadvantage:disadvantage": 0.6347305389221557,
+        "neutral:neutral": 0.573208722741433,
+        "advantage:disadvantage": 0.639344262295082,
+        "disadvantage:advantage": 0.6197183098591549
+      },
+      "by_margin": {
+        "safe": 0.6308068459657702,
+        "risk": 0.5894039735099338,
+        "mid": 0.5654450261780105
+      }
+    },
+    "score": 0.6023281596452329
+  }
+]

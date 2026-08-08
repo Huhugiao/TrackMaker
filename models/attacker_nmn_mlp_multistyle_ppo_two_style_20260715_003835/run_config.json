@@ -1,0 +1,423 @@
+{
+  "action_safety_layer": false,
+  "algorithm": "multi_style_ppo",
+  "clip_range": 0.2,
+  "curriculum_stages": [
+    {
+      "gate_bin": "easy_open",
+      "gate_bins": [
+        {
+          "attacker_target_astar_distance": [
+            60.0,
+            140.0
+          ],
+          "name": "easy_open",
+          "obstacle_densities": [
+            "none",
+            "scattered"
+          ],
+          "obstacle_density_weights": {
+            "none": 0.5,
+            "scattered": 0.5
+          },
+          "time_margin": [
+            -120.0,
+            -40.0
+          ],
+          "weight": 1.0
+        }
+      ],
+      "gate_success_rate": 0.8,
+      "min_environment_steps": 500000,
+      "name": "easy",
+      "required_consecutive_passes": 3,
+      "train_weights": {
+        "easy_open": 1.0
+      },
+      "training_bins": [
+        {
+          "attacker_target_astar_distance": [
+            60.0,
+            140.0
+          ],
+          "name": "easy_open",
+          "obstacle_densities": [
+            "none",
+            "scattered"
+          ],
+          "obstacle_density_weights": {
+            "none": 0.5,
+            "scattered": 0.5
+          },
+          "time_margin": [
+            -120.0,
+            -40.0
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "gate_bin": "contested_mixed",
+      "gate_bins": [
+        {
+          "attacker_target_astar_distance": [
+            100.0,
+            220.0
+          ],
+          "name": "contested_mixed",
+          "obstacle_densities": [
+            "scattered",
+            "dense"
+          ],
+          "obstacle_density_weights": {
+            "dense": 0.3,
+            "scattered": 0.7
+          },
+          "time_margin": [
+            -40.0,
+            20.0
+          ],
+          "weight": 1.0
+        }
+      ],
+      "gate_success_rate": 0.65,
+      "min_environment_steps": 750000,
+      "name": "medium",
+      "required_consecutive_passes": 3,
+      "train_weights": {
+        "contested_mixed": 0.8,
+        "easy_open": 0.2
+      },
+      "training_bins": [
+        {
+          "attacker_target_astar_distance": [
+            60.0,
+            140.0
+          ],
+          "name": "easy_open",
+          "obstacle_densities": [
+            "none",
+            "scattered"
+          ],
+          "obstacle_density_weights": {
+            "none": 0.5,
+            "scattered": 0.5
+          },
+          "time_margin": [
+            -120.0,
+            -40.0
+          ],
+          "weight": 0.2
+        },
+        {
+          "attacker_target_astar_distance": [
+            100.0,
+            220.0
+          ],
+          "name": "contested_mixed",
+          "obstacle_densities": [
+            "scattered",
+            "dense"
+          ],
+          "obstacle_density_weights": {
+            "dense": 0.3,
+            "scattered": 0.7
+          },
+          "time_margin": [
+            -40.0,
+            20.0
+          ],
+          "weight": 0.8
+        }
+      ]
+    },
+    {
+      "gate_bin": "hard_dense",
+      "gate_bins": [
+        {
+          "attacker_target_astar_distance": [
+            140.0,
+            300.0
+          ],
+          "name": "hard_dense",
+          "obstacle_densities": [
+            "dense"
+          ],
+          "obstacle_density_weights": {
+            "dense": 1.0
+          },
+          "time_margin": [
+            20.0,
+            80.0
+          ],
+          "weight": 1.0
+        }
+      ],
+      "gate_success_rate": 0.5,
+      "min_environment_steps": 1000000,
+      "name": "hard",
+      "required_consecutive_passes": 3,
+      "train_weights": {
+        "contested_mixed": 0.2,
+        "hard_dense": 0.8
+      },
+      "training_bins": [
+        {
+          "attacker_target_astar_distance": [
+            100.0,
+            220.0
+          ],
+          "name": "contested_mixed",
+          "obstacle_densities": [
+            "scattered",
+            "dense"
+          ],
+          "obstacle_density_weights": {
+            "dense": 0.3,
+            "scattered": 0.7
+          },
+          "time_margin": [
+            -40.0,
+            20.0
+          ],
+          "weight": 0.2
+        },
+        {
+          "attacker_target_astar_distance": [
+            140.0,
+            300.0
+          ],
+          "name": "hard_dense",
+          "obstacle_densities": [
+            "dense"
+          ],
+          "obstacle_density_weights": {
+            "dense": 1.0
+          },
+          "time_margin": [
+            20.0,
+            80.0
+          ],
+          "weight": 0.8
+        }
+      ]
+    },
+    {
+      "gate_bin": "default",
+      "gate_bins": [
+        {
+          "default_distribution": true,
+          "name": "default",
+          "weight": 1.0
+        }
+      ],
+      "gate_success_rate": null,
+      "min_environment_steps": 0,
+      "name": "default",
+      "required_consecutive_passes": 0,
+      "train_weights": {
+        "default": 0.8,
+        "hard_dense": 0.2
+      },
+      "training_bins": [
+        {
+          "attacker_target_astar_distance": [
+            140.0,
+            300.0
+          ],
+          "name": "hard_dense",
+          "obstacle_densities": [
+            "dense"
+          ],
+          "obstacle_density_weights": {
+            "dense": 1.0
+          },
+          "time_margin": [
+            20.0,
+            80.0
+          ],
+          "weight": 0.2
+        },
+        {
+          "default_distribution": true,
+          "name": "default",
+          "weight": 0.8
+        }
+      ]
+    }
+  ],
+  "defender_checkpoint": "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_02-11-17-34/best_model.pth",
+  "env_config": {
+    "curriculum_bins": [
+      {
+        "attacker_target_astar_distance": [
+          60.0,
+          140.0
+        ],
+        "name": "easy_open",
+        "obstacle_densities": [
+          "none",
+          "scattered"
+        ],
+        "obstacle_density_weights": {
+          "none": 0.5,
+          "scattered": 0.5
+        },
+        "time_margin": [
+          -120.0,
+          -40.0
+        ],
+        "weight": 0.6
+      },
+      {
+        "attacker_target_astar_distance": [
+          100.0,
+          220.0
+        ],
+        "name": "contested_mixed",
+        "obstacle_densities": [
+          "scattered",
+          "dense"
+        ],
+        "obstacle_density_weights": {
+          "dense": 0.3,
+          "scattered": 0.7
+        },
+        "time_margin": [
+          -40.0,
+          20.0
+        ],
+        "weight": 0.3
+      },
+      {
+        "attacker_target_astar_distance": [
+          140.0,
+          300.0
+        ],
+        "name": "hard_dense",
+        "obstacle_densities": [
+          "dense"
+        ],
+        "obstacle_density_weights": {
+          "dense": 1.0
+        },
+        "time_margin": [
+          20.0,
+          80.0
+        ],
+        "weight": 0.1
+      }
+    ],
+    "curriculum_enabled": true,
+    "curriculum_keep_base_speeds": true,
+    "defender_strategy": "skill_protect",
+    "defender_strategy_params": {
+      "device": "cpu",
+      "protect_skill_path": "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_02-11-17-34/best_model.pth"
+    },
+    "defender_strategy_pool": [
+      "skill_protect"
+    ],
+    "defender_strategy_weights": {
+      "skill_protect": 1.0
+    },
+    "path_grid_size": 8.0,
+    "path_obstacle_padding": 10.0,
+    "reward_mode": "standard",
+    "reward_parameters": {
+      "ATTACKER_COLLISION_MAX_EVENTS": 3.0
+    },
+    "reward_styles": [
+      {
+        "STEP_PENALTY": -0.01,
+        "SUCCESS_REWARD": 20.0,
+        "TARGET_PROGRESS_SCALE": 30.0,
+        "description": "Risk-seeking shortest-path pursuit with no defender fear term.",
+        "name": "goal_rush"
+      },
+      {
+        "ATTACKER_COLLISION_PENALTY": -2.0,
+        "CAPTURE_PENALTY": -20.0,
+        "EVADE_PROGRESS_SCALE": 6.0,
+        "STEP_PENALTY": -0.005,
+        "SUCCESS_REWARD": 20.0,
+        "TARGET_PROGRESS_SCALE": 20.0,
+        "TIMEOUT_PENALTY": -5.0,
+        "description": "Risk-averse pursuit that values separation under immediate threat.",
+        "name": "evasive"
+      }
+    ],
+    "target_progress_metric": "astar"
+  },
+  "epochs": 6,
+  "eval_seed": 42000,
+  "evaluation": {
+    "default_episodes_per_style": 32,
+    "gate_episodes_per_style": 64,
+    "interval": 250000,
+    "paired_seeds_across_styles": true,
+    "promotion_requires_all_styles": true
+  },
+  "gae_lambda": 0.95,
+  "gamma": 0.995,
+  "max_environment_steps": 10000000,
+  "minibatch_size": 1024,
+  "network_type": "attacker_nmn_mlp_multistyle_ppo",
+  "num_envs": 12,
+  "on_policy": true,
+  "recurrent": false,
+  "reward_relabeling": false,
+  "reward_styles": [
+    {
+      "ATTACKER_COLLISION_PENALTY": 0.0,
+      "CAPTURE_PENALTY": 0.0,
+      "DEFENDER_COLLISION_REWARD": 0.0,
+      "EVADE_PROGRESS_SCALE": 0.0,
+      "STEP_PENALTY": -0.01,
+      "SUCCESS_REWARD": 20.0,
+      "TARGET_PROGRESS_SCALE": 30.0,
+      "TIMEOUT_PENALTY": 0.0,
+      "description": "Risk-seeking shortest-path pursuit with no defender fear term.",
+      "name": "goal_rush"
+    },
+    {
+      "ATTACKER_COLLISION_PENALTY": -2.0,
+      "CAPTURE_PENALTY": -20.0,
+      "DEFENDER_COLLISION_REWARD": 0.0,
+      "EVADE_PROGRESS_SCALE": 6.0,
+      "STEP_PENALTY": -0.005,
+      "SUCCESS_REWARD": 20.0,
+      "TARGET_PROGRESS_SCALE": 20.0,
+      "TIMEOUT_PENALTY": -5.0,
+      "description": "Risk-averse pursuit that values separation under immediate threat.",
+      "name": "evasive"
+    }
+  ],
+  "reward_weight_matrix": [
+    [
+      -0.009999999776482582,
+      30.0,
+      0.0,
+      0.0,
+      20.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      -0.004999999888241291,
+      20.0,
+      6.0,
+      -2.0,
+      20.0,
+      -20.0,
+      -5.0,
+      0.0
+    ]
+  ],
+  "rollout_steps_per_env": 512,
+  "seed": 2026,
+  "status": "active",
+  "worker_style_assignment": "fixed_round_robin"
+}
