@@ -1,6 +1,6 @@
 # 下层攻防策略生成计划
 
-最后更新：2026-07-22
+最后更新：2026-08-10
 
 ## 当前研究范围
 
@@ -88,15 +88,21 @@ Chase 为 `84.50%`，且旧模型在六个对手上均占优。因此旧 Protect
 全面支配；最后检查行为是否与已有成员重复。specialist 可以因稳定的独占成功或分布覆盖价值保留，
 但 shaped reward、单次高分或名称上的“风格”不能作为晋级证据。
 
-## 互补性风险与后续思路
+## Protect–Chase 互补与安全边界
 
-当前下层生成的主要风险是“伪多样性”：策略的名称、reward style 或轨迹外观不同，但真实成败高度重合，
-没有形成可供未来上层选择器利用的条件互补。整局交叉矩阵可以检查不同对手与 seed 上的 episode 级互补，而局内选择
-还需要进一步验证同一状态下的 state 级互补。
+当前下层生成的主要风险仍是“伪多样性”：名称、reward style 或轨迹外观不同，并不能证明真实
+成败互补。active Protect 与 recurrent Chase 是已经确认具有 episode-level 互补的特定例外。
 
-后续可从现有候选的失败局和分歧局中保存关键 simulator snapshot，并从相同状态分叉执行不同策略：部分策略
-成功、部分失败的状态用于验证真实互补；全部策略都失败的状态可用于发现策略池的覆盖缺口，并指导新 specialist
-的针对性生成。该思路暂作后续实验方向，当前不固定具体指标、训练流程或上层网络形式。
+冻结的双时点 gate 只在 step 64/80 根据 Target 时间余量、Defender–Target 距离和最近 16 步
+Attacker Target progress 提出 Chase，再用 Protect/Chase 动作距离否决强冲突。最终 1,800 个 paired
+cases 中，Protect 与 guarded Protect→Chase 的 `C/T/B` 分别为 `1023/589/188` 和
+`1244/371/185`，collision 均为 0；218 个 timeout 转为 capture，但仍有 1 个
+`timeout -> breach`。因此该 gate 只作为互补效率基线保留，不构成逐局安全保证。
+
+gate 使用 simulator privileged A/D/T 真值，不进入 active learned Defender pool。停止继续搜索
+瞬时 heuristic 阈值；后续继续用相同 simulator snapshot 的独占成功和共同失败筛选 learned 下层
+策略，不训练新的 top、meta-controller、局内 Router 或 payoff solver。完整证据与复现入口见
+`docs/protect_chase_capture_conversion_audit.md`。
 
 ## 当前工程边界
 

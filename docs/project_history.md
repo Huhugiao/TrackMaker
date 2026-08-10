@@ -1,6 +1,6 @@
 # TrackMaker 项目历史与主线
 
-最后更新：2026-07-22
+最后更新：2026-08-10
 
 本文档记录需要长期保留的研究结论、正式资产和当前工程方向。详细实验过程留在 Git 历史中，不再把失败分支和原始运行数据长期堆放在主工作树。
 
@@ -25,6 +25,13 @@
   在六个对手上全面支配。用户据此确认 active Defender pool 为“新 Protect + 旧 recurrent Chase +
   A* path-risk HRL”。旧 Protect2 和旧 standalone baseline 退出 active pool但保留为历史资产，
   新 Chase 不晋级。后续正式矩阵不再统计最近攻防距离。
+- 2026-08-08 至 2026-08-10：完成 active Protect 与 recurrent Chase 的捕获互补性审计。冻结的
+  双时点 gate 在 step 64/80 根据真值几何与最近 16 步 Target progress 提出 Chase，并用两技能
+  动作距离否决强冲突。最终 6 个冻结 Attacker、三个独立 100-seed blocks 共 1,800 个 paired cases
+  中，Protect 与 guarded Protect→Chase 的 `C/T/B` 分别为 `1023/589/188` 和
+  `1244/371/185`，collision 均为 0；218 个 timeout 转为 capture，但有 1 个
+  `timeout -> breach`。该规则保留为诊断性互补效率基线，不作为逐局安全保证，也不改变 active
+  learned Defender pool。证据与复现参数见 `docs/protect_chase_capture_conversion_audit.md`。
 
 ### Chapter 2 复现边界
 
