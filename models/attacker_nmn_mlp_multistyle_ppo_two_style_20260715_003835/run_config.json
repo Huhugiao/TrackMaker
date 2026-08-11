@@ -247,7 +247,7 @@
       ]
     }
   ],
-  "defender_checkpoint": "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_02-11-17-34/best_model.pth",
+  "defender_checkpoint": null,
   "env_config": {
     "curriculum_bins": [
       {
@@ -314,7 +314,7 @@
     "defender_strategy": "skill_protect",
     "defender_strategy_params": {
       "device": "cpu",
-      "protect_skill_path": "/home/cyq/miniconda3/envs/lnenv/TrackMaker/models/defender_protect2_dense_02-11-17-34/best_model.pth"
+      "protect_skill_path": null
     },
     "defender_strategy_pool": [
       "skill_protect"

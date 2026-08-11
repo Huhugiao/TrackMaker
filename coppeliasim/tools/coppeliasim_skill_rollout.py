@@ -28,7 +28,7 @@ from coppelia_env.skill_adapter import (  # noqa: E402
 
 
 DEFAULT_MANIFEST = PROJECT_ROOT / "coppeliasim/scenes/trackmaker_turtlebot4_scene.json"
-DEFAULT_BASELINE_CHECKPOINT = PROJECT_ROOT / "models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth"
+DEFAULT_PROTECT_CHECKPOINT = PROJECT_ROOT / "models/defender_protect_mlp_ctde_repro_20260526/final_model.pth"
 DEFAULT_CHASE_CHECKPOINT = PROJECT_ROOT / "models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth"
 DEFAULT_OUTPUT = PROJECT_ROOT / "outputs/coppeliasim/skill_rollout.json"
 
@@ -42,11 +42,11 @@ class SkillDefaults:
 
 def skill_defaults(skill: str) -> SkillDefaults:
     normalized = str(skill).strip().lower()
-    if normalized in {"baseline", "protect"}:
+    if normalized == "protect":
         return SkillDefaults(
-            checkpoint=DEFAULT_BASELINE_CHECKPOINT,
+            checkpoint=DEFAULT_PROTECT_CHECKPOINT,
             network_type="mlp_ctde",
-            reward_mode="baseline",
+            reward_mode="protect",
         )
     if normalized == "chase":
         return SkillDefaults(
@@ -54,13 +54,13 @@ def skill_defaults(skill: str) -> SkillDefaults:
             network_type="nmn_dual_gru_raw",
             reward_mode="chase",
         )
-    raise ValueError(f"unsupported skill {skill!r}; expected baseline, protect, or chase")
+    raise ValueError(f"unsupported skill {skill!r}; expected protect or chase")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--skill", default="chase", choices=["baseline", "protect", "chase"])
+    parser.add_argument("--skill", default="chase", choices=["protect", "chase"])
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--network-type", default=None)
     parser.add_argument("--host", default="127.0.0.1")

@@ -97,7 +97,7 @@ def main():
     )
     parser.add_argument(
         "--defenders",
-        default="learned_baseline,learned_chase_skill,learned_protect_skill",
+        default="learned_protect,learned_chase_skill",
     )
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs" / "heuristic_learning")
     parser.add_argument("--trace-limit-per-policy", type=int, default=3)

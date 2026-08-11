@@ -182,8 +182,8 @@ Defender runner 使用 alias-keyed `learned_attacker_specs` 同时加载多个�
 
 > 历史负结果（2026-07-20）：本节只记录已经完成的 pursuer/interceptor/sentinel 配方。
 > 统一 6-Attacker × 48-seed 评测后，三者均从正式 Defender pool 淘汰；专用实现、入口、测试和
-> checkpoint 已从主工作树删除，可从 Git 历史恢复。下一轮已回到旧 baseline reward，并使用
-> `train/train_defender_baseline_ppo.py` 和完整六成员冻结 Attacker pool。
+> checkpoint 已从主工作树删除，可从 Git 历史恢复。下一轮使用 Protect reward、
+> `train/train_defender_protect_ppo.py` 和完整六成员冻结 Attacker pool。
 
 Attacker 池已经满足进入 Defender 轮次的条件。三个池成员在本轮完全冻结；训练期间不再
 更新 Attacker，也不把 Defender 的 reward style 和对手身份绑定：每个 Defender 都按

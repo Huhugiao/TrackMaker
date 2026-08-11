@@ -830,8 +830,8 @@ class CoppeliaTrackEnv:
             initial_dist_def_att=self.initial_dist_def_att,
             initial_dist_def_tgt=self.initial_dist_def_tgt,
         )
-        if self.reward_mode == "baseline":
-            return reward_fn.reward_calculate_baseline(**kwargs)
+        if self.reward_mode == "protect":
+            return reward_fn.reward_calculate_protect(**kwargs)
         if self.reward_mode == "chase":
             return reward_fn.reward_calculate_chase(**kwargs)
         return reward_fn.reward_calculate_tad(**kwargs)

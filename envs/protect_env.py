@@ -8,7 +8,7 @@ from envs.tad_env import TADEnv
 from policies.attacker_global import SUPPORTED_STRATEGIES, TRAINING_STRATEGIES, AttackerGlobalPolicy
 
 
-class BaselineEnv(gym.Env):
+class ProtectEnv(gym.Env):
     """Single-level RL wrapper that controls attacker internally."""
 
     def __init__(
@@ -41,7 +41,7 @@ class BaselineEnv(gym.Env):
             mode = random.choice(TRAINING_STRATEGIES)
 
         if mode not in SUPPORTED_STRATEGIES:
-            raise ValueError(f"Unsupported attacker strategy for BaselineEnv: {strategy}")
+            raise ValueError(f"Unsupported attacker strategy for ProtectEnv: {strategy}")
 
         self._attacker_policy = AttackerGlobalPolicy(
             strategy=mode,

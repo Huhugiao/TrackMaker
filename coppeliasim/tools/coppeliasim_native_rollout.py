@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=23000)
     parser.add_argument("--steps", type=int, default=120)
     parser.add_argument("--seed", type=int, default=20260623)
-    parser.add_argument("--reward-mode", default="hrl", choices=["hrl", "baseline", "chase"])
+    parser.add_argument("--reward-mode", default="hrl", choices=["hrl", "protect", "chase"])
     parser.add_argument("--policy", default="seek", choices=["zero", "seek", "circle"])
     parser.add_argument("--output-json", type=Path, default=PROJECT_ROOT / "outputs/coppeliasim/native_rollout.json")
     parser.add_argument("--no-start-simulation", action="store_true")

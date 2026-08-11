@@ -159,8 +159,7 @@ class SetupParameters:
     )
 
     # Attacker bootstrap must use an existing learned Defender, not a rule policy.
-    # The selected protect2 checkpoint was the strongest existing model in the
-    # fixed-seed six-rule evaluation run on 2026-07-11.
+    # Attacker bootstrap uses the active learned Protect checkpoint.
     DEFENDER_STRATEGY = "skill_protect"
     DEFENDER_STRATEGY_POOL = ["skill_protect"]
     DEFENDER_STRATEGY_WEIGHTS = {"skill_protect": 1.0}
@@ -168,22 +167,23 @@ class SetupParameters:
     # Example: {"d0": {"strategy": "skill_protect", "checkpoint": "..."}}
     DEFENDER_POLICY_SPECS = {}
     PROTECT_SKILL_PATH = str(
-        CHECKPOINTS_DIR / "defender_protect2_dense_02-11-17-34" / "best_model.pth"
+        CHECKPOINTS_DIR
+        / "defender_protect_mlp_ctde_frozen6_20260721_105148"
+        / "best_balanced_model.pth"
     )
 
     # Hierarchical defender bottom-skill checkpoints.
-    # 2-skill mode uses baseline + chase as the HRL primitive bank.
+    # HRL uses Protect + Chase as its primitive bank.
     HRL_NUM_SKILLS = 2
     HRL_TOP_POLICY_PATH = str(
         CHECKPOINTS_DIR / "hrl_ch2_m1_astar_cached_top_20260606_170036" / "best_model.pth"
     )
     HRL_PRIMARY_SKILL_PATH = str(
-        CHECKPOINTS_DIR / "defender_baseline_mlp_ctde_repro_20260526" / "final_model.pth"
+        CHECKPOINTS_DIR / "defender_protect_mlp_ctde_repro_20260526" / "final_model.pth"
     )
     HRL_CHASE_SKILL_PATH = str(
         CHECKPOINTS_DIR / "defender_chase_nmn_dual_gru_raw_dense_05-05-19-12" / "final_model.pth"
     )
-    HRL_BASELINE_SKILL_PATH = None
     HRL_DEVICE = "auto"
 class RewardParameters:
     """Attacker-side dense reward shaping."""

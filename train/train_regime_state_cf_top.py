@@ -72,7 +72,7 @@ REPLAY_MAX_ROWS = _env_int("SCF_REPLAY_MAX_ROWS", 60000)
 ROLLOUT_RANDOM_RATE = _env_float("SCF_ROLLOUT_RANDOM_RATE", 0.22)
 ROLLOUT_LABEL_RATE = _env_float("SCF_ROLLOUT_LABEL_RATE", 0.35)
 LABEL_SMOOTHING = _env_float("SCF_LABEL_SMOOTHING", 0.03)
-BASELINE_CLASS_WEIGHT = _env_float("SCF_BASELINE_CLASS_WEIGHT", 1.0)
+PROTECT_CLASS_WEIGHT = _env_float("SCF_PROTECT_CLASS_WEIGHT", 1.0)
 CHASE_CLASS_WEIGHT = _env_float("SCF_CHASE_CLASS_WEIGHT", 1.0)
 TOP_CHASE_LOGIT_BIAS = _env_float("SCF_TOP_CHASE_LOGIT_BIAS", 0.0)
 ENABLE_UTILITY_GAP_LABEL = _env_bool("SCF_ENABLE_UTILITY_GAP_LABEL", False)
@@ -98,7 +98,7 @@ ATTACKERS = _split_csv(
 )
 REGIMES = _split_csv(os.environ.get("SCF_REGIMES", "advantage,neutral,disadvantage"))
 REGIME_PROBS = tuple(float(x) for x in os.environ.get("SCF_REGIME_PROBS", "0.42,0.35,0.23").split(","))
-SKILL_LAYOUT = "baseline_chase"
+SKILL_LAYOUT = "protect_chase"
 NUM_SKILLS = 2
 
 SAFE_MARGIN_STEPS = _env_float("SCF_SAFE_MARGIN_STEPS", 34.0)
@@ -113,8 +113,8 @@ BASE_SAFETY_WEIGHT = _env_float("SCF_BASE_SAFETY_WEIGHT", 0.7)
 RISK_SAFETY_WEIGHT = _env_float("SCF_RISK_SAFETY_WEIGHT", 2.8)
 BASE_DELAY_WEIGHT = _env_float("SCF_BASE_DELAY_WEIGHT", 0.3)
 RISK_DELAY_WEIGHT = _env_float("SCF_RISK_DELAY_WEIGHT", 1.2)
-BASELINE_FALLBACK_TOL = _env_float("SCF_BASELINE_FALLBACK_TOL", 0.0)
-BASELINE_CHASE_CLEAR_MARGIN = _env_float("SCF_BASELINE_CHASE_CLEAR_MARGIN", 0.8)
+PROTECT_FALLBACK_TOL = _env_float("SCF_PROTECT_FALLBACK_TOL", 0.0)
+PROTECT_CHASE_CLEAR_MARGIN = _env_float("SCF_PROTECT_CHASE_CLEAR_MARGIN", 0.8)
 CAPTURE_REWARD = _env_float("SCF_CAPTURE_REWARD", 9.0)
 TIMEOUT_WIN_REWARD = _env_float("SCF_TIMEOUT_WIN_REWARD", 1.6)
 ATTACKER_CAPTURE_PENALTY = _env_float("SCF_ATTACKER_CAPTURE_PENALTY", 12.0)
@@ -136,9 +136,9 @@ CHASE_PATH = os.environ.get(
     "SCF_CHASE_PATH",
     str(CHECKPOINTS_DIR / "defender_chase_nmn_dual_gru_raw_dense_05-05-19-12" / "final_model.pth"),
 ).strip()
-BASELINE_PATH = os.environ.get(
-    "SCF_BASELINE_PATH",
-    str(CHECKPOINTS_DIR / "defender_baseline_mlp_ctde_repro_20260526" / "final_model.pth"),
+PROTECT_PATH = os.environ.get(
+    "SCF_PROTECT_PATH",
+    str(CHECKPOINTS_DIR / "defender_protect_mlp_ctde_repro_20260526" / "final_model.pth"),
 ).strip()
 
 
@@ -202,10 +202,9 @@ def _make_top(device: torch.device, init_top_path):
 
 def _make_env(attacker: str, device: torch.device):
     return HRLEnv(
-        protect_model_path=BASELINE_PATH,
+        protect_model_path=PROTECT_PATH,
         chase_model_path=CHASE_PATH,
-        baseline_model_path=None,
-        primary_skill_name="baseline",
+        primary_skill_name="protect",
         attacker_strategy=str(attacker),
         device=str(device),
         hold_min=1,
@@ -382,7 +381,7 @@ def _choose_label(skill_names: Tuple[str, ...], reports: List[Dict], regime: str
     utilities = np.asarray([float(r["utility"]) for r in reports], dtype=np.float32)
     best = int(np.argmax(utilities))
     chase_idx = skill_names.index("chase") if "chase" in skill_names else -1
-    baseline_idx = skill_names.index("baseline") if "baseline" in skill_names else -1
+    protect_idx = skill_names.index("protect") if "protect" in skill_names else -1
     init_margin = float(reports[0]["init"]["margin"])
     safe = init_margin >= SAFE_MARGIN_STEPS
     risky = init_margin <= RISK_MARGIN_STEPS
@@ -391,13 +390,13 @@ def _choose_label(skill_names: Tuple[str, ...], reports: List[Dict], regime: str
     if (
         bool(ENABLE_UTILITY_GAP_LABEL)
         and chase_idx >= 0
-        and baseline_idx >= 0
+        and protect_idx >= 0
         and best == chase_idx
-        and not reports[baseline_idx]["bad"]
+        and not reports[protect_idx]["bad"]
     ):
-        chase_gap = float(utilities[chase_idx] - utilities[baseline_idx])
+        chase_gap = float(utilities[chase_idx] - utilities[protect_idx])
         if chase_gap < _utility_gap_required(regime, attacker):
-            return int(baseline_idx)
+            return int(protect_idx)
 
     # If chase is almost as good in safe states, force the aggressive label.
     if chase_idx >= 0 and safe:
@@ -405,34 +404,34 @@ def _choose_label(skill_names: Tuple[str, ...], reports: List[Dict], regime: str
             return int(chase_idx)
 
     if chase_idx >= 0 and best == chase_idx and risky:
-        defensive = [idx for idx in (baseline_idx,) if idx >= 0]
+        defensive = [idx for idx in (protect_idx,) if idx >= 0]
         if defensive:
             defensive_best = max(defensive, key=lambda idx: float(utilities[idx]))
             if (utilities[chase_idx] - utilities[defensive_best]) < RISK_CHASE_BONUS_REQ:
                 return int(defensive_best)
 
-    if baseline_idx >= 0 and BASELINE_FALLBACK_TOL > 0.0 and not reports[baseline_idx]["bad"]:
-        baseline_gap = float(utilities[best] - utilities[baseline_idx])
+    if protect_idx >= 0 and PROTECT_FALLBACK_TOL > 0.0 and not reports[protect_idx]["bad"]:
+        protect_gap = float(utilities[best] - utilities[protect_idx])
         chase_clear = False
         if chase_idx >= 0 and not reports[chase_idx]["bad"]:
             chase_clear = (
-                float(utilities[chase_idx] - utilities[baseline_idx])
-                >= float(BASELINE_CHASE_CLEAR_MARGIN)
+                float(utilities[chase_idx] - utilities[protect_idx])
+                >= float(PROTECT_CHASE_CLEAR_MARGIN)
             )
-        if baseline_gap <= float(BASELINE_FALLBACK_TOL) and not chase_clear:
-            return int(baseline_idx)
+        if protect_gap <= float(PROTECT_FALLBACK_TOL) and not chase_clear:
+            return int(protect_idx)
 
-    # Baseline should not dominate neutral/advantage unless it clearly wins.
-    if baseline_idx >= 0 and best == baseline_idx and margin_regime != "disadvantage":
-        nonbase = [idx for idx, name in enumerate(skill_names) if name != "baseline"]
+    # Protect should not dominate neutral/advantage unless it clearly wins.
+    if protect_idx >= 0 and best == protect_idx and margin_regime != "disadvantage":
+        nonbase = [idx for idx, name in enumerate(skill_names) if name != "protect"]
         nonbase_best = max(nonbase, key=lambda idx: float(utilities[idx]))
-        if (utilities[baseline_idx] - utilities[nonbase_best]) <= NONBASE_TOLERANCE:
+        if (utilities[protect_idx] - utilities[nonbase_best]) <= NONBASE_TOLERANCE:
             return int(nonbase_best)
 
     # In disadvantage, allow chase only when it is meaningfully better than
     # the best defensive option. This is the "bad cases preserve win-rate" bias.
     if chase_idx >= 0 and best == chase_idx and margin_regime == "disadvantage" and risky:
-        defensive = [idx for idx in (baseline_idx,) if idx >= 0]
+        defensive = [idx for idx in (protect_idx,) if idx >= 0]
         if defensive:
             defensive_best = max(defensive, key=lambda idx: float(utilities[idx]))
             if (utilities[chase_idx] - utilities[defensive_best]) < DISADV_CHASE_BONUS_REQ:
@@ -450,9 +449,9 @@ def _soft_utility_targets(rows: List[Dict], device: torch.device) -> torch.Tenso
         floor, ceil = ceil, floor
     for row in rows:
         utilities = row.get("utilities", [0.0, 0.0])
-        baseline_u = float(utilities[0]) if len(utilities) > 0 else 0.0
-        chase_u = float(utilities[1]) if len(utilities) > 1 else baseline_u
-        gaps.append((chase_u - baseline_u) / scale)
+        protect_u = float(utilities[0]) if len(utilities) > 0 else 0.0
+        chase_u = float(utilities[1]) if len(utilities) > 1 else protect_u
+        gaps.append((chase_u - protect_u) / scale)
     target = torch.sigmoid(torch.as_tensor(gaps, dtype=torch.float32, device=device))
     return torch.clamp(target, min=floor, max=ceil)
 
@@ -463,8 +462,8 @@ def _soft_utility_aux_loss(logits: torch.Tensor, rows: List[Dict], device: torch
     if logits.shape[-1] < 2 or not rows:
         return torch.zeros((), dtype=logits.dtype, device=device)
     target = _soft_utility_targets(rows, device=device).to(dtype=logits.dtype)
-    chase_minus_baseline = logits[:, 1] - logits[:, 0]
-    return F.binary_cross_entropy_with_logits(chase_minus_baseline, target) * float(SOFT_UTILITY_AUX_WEIGHT)
+    chase_minus_protect = logits[:, 1] - logits[:, 0]
+    return F.binary_cross_entropy_with_logits(chase_minus_protect, target) * float(SOFT_UTILITY_AUX_WEIGHT)
 
 
 def _margin_regime_name(regime: str) -> str:
@@ -503,7 +502,7 @@ def _top_action_from_window(net, actor_window, critic_window, device: torch.devi
         logits = mean[:, -1, :int(NUM_SKILLS)]
         logits = apply_chase_logit_bias(
             logits,
-            skill_names=("baseline", "chase"),
+            skill_names=("protect", "chase"),
             chase_logit_bias=TOP_CHASE_LOGIT_BIAS,
         )
         return int(torch.argmax(logits, dim=-1).item())
@@ -674,7 +673,7 @@ def _eval_rows(net, rows: List[Dict], device: torch.device) -> Dict:
             mean, _value, _log_std = net(actor, critic)
             logits = apply_chase_logit_bias(
                 mean[:, -1, :int(NUM_SKILLS)],
-                skill_names=("baseline", "chase"),
+                skill_names=("protect", "chase"),
                 chase_logit_bias=TOP_CHASE_LOGIT_BIAS,
             )
             pred = torch.argmax(logits, dim=-1).detach().cpu().numpy()
@@ -741,7 +740,7 @@ def main():
         "horizon": HORIZON,
         "sample_interval": SAMPLE_INTERVAL,
         "max_samples_per_ep": MAX_SAMPLES_PER_EP,
-        "baseline_class_weight": BASELINE_CLASS_WEIGHT,
+        "protect_class_weight": PROTECT_CLASS_WEIGHT,
         "chase_class_weight": CHASE_CLASS_WEIGHT,
         "top_chase_logit_bias": TOP_CHASE_LOGIT_BIAS,
         "enable_utility_gap_label": ENABLE_UTILITY_GAP_LABEL,
@@ -767,7 +766,7 @@ def main():
         "init_mode": "checkpoint" if resolved_init_top_path is not None else "random_explicit",
         "allow_random_init": ALLOW_RANDOM_INIT,
         "chase_path": CHASE_PATH,
-        "baseline_path": BASELINE_PATH,
+        "protect_path": PROTECT_PATH,
         "safe_margin_steps": SAFE_MARGIN_STEPS,
         "risk_margin_steps": RISK_MARGIN_STEPS,
         "chase_tolerance_safe": CHASE_TOLERANCE_SAFE,
@@ -780,8 +779,8 @@ def main():
         "risk_safety_weight": RISK_SAFETY_WEIGHT,
         "base_delay_weight": BASE_DELAY_WEIGHT,
         "risk_delay_weight": RISK_DELAY_WEIGHT,
-        "baseline_fallback_tol": BASELINE_FALLBACK_TOL,
-        "baseline_chase_clear_margin": BASELINE_CHASE_CLEAR_MARGIN,
+        "protect_fallback_tol": PROTECT_FALLBACK_TOL,
+        "protect_chase_clear_margin": PROTECT_CHASE_CLEAR_MARGIN,
         "capture_reward": CAPTURE_REWARD,
         "timeout_win_reward": TIMEOUT_WIN_REWARD,
         "attacker_capture_penalty": ATTACKER_CAPTURE_PENALTY,
@@ -799,10 +798,10 @@ def main():
 
     net = _make_top(device, resolved_init_top_path)
     opt = torch.optim.AdamW(net.parameters(), lr=float(LR), weight_decay=float(WEIGHT_DECAY))
-    skill_names = ("baseline", "chase")
+    skill_names = ("protect", "chase")
     class_weights = build_two_skill_class_weights(
         skill_names,
-        baseline_weight=BASELINE_CLASS_WEIGHT,
+        protect_weight=PROTECT_CLASS_WEIGHT,
         chase_weight=CHASE_CLASS_WEIGHT,
         device=device,
     )

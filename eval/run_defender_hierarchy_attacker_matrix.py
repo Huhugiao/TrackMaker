@@ -45,12 +45,12 @@ NEW_ATTACKERS = (
     "occlusion_dash_v2",
 )
 DEFAULT_ATTACKERS = LEGACY_ATTACKERS + NEW_ATTACKERS
-DEFAULT_DEFENDERS = ("hrl", "baseline_skill", "chase_skill")
+DEFAULT_DEFENDERS = ("hrl", "protect_skill", "chase_skill")
 
 # User-confirmed active Defender pool.  Historical variants remain registered
 # below for reproducibility, but are not selected by the default matrix.
 POOL_DEFENDERS = (
-    "protect_frozen6",
+    "protect_skill",
     "chase_skill",
     "hrl",
 )
@@ -62,9 +62,8 @@ class DefenderVariant:
     env_strategy: str
     role: str
     top_checkpoint: Optional[str]
-    baseline_checkpoint: str
+    protect_checkpoint: str
     chase_checkpoint: str
-    protect_checkpoint: Optional[str]
     apply_controller_obstacle_mask: bool
 
 
@@ -72,31 +71,19 @@ DEFENDER_VARIANTS: Dict[str, DefenderVariant] = {
     "hrl": DefenderVariant(
         name="hrl",
         env_strategy="hrl",
-        role="learned top over frozen baseline/chase skills",
+        role="learned top over frozen Protect/Chase skills",
         top_checkpoint="models/hrl_ch2_m1_astar_cached_top_20260606_170036/best_model.pth",
-        baseline_checkpoint="models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth",
+        protect_checkpoint="models/defender_protect_mlp_ctde_repro_20260526/final_model.pth",
         chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        protect_checkpoint=None,
         apply_controller_obstacle_mask=True,
     ),
-    "protect_frozen6": DefenderVariant(
-        name="protect_frozen6",
-        env_strategy="skill_baseline",
+    "protect_skill": DefenderVariant(
+        name="protect_skill",
+        env_strategy="skill_protect",
         role="active 20260721 Protect best-balanced; trained equally against frozen6 Attackers",
         top_checkpoint=None,
-        baseline_checkpoint="models/defender_protect_mlp_ctde_frozen6_20260721_105148/best_balanced_model.pth",
+        protect_checkpoint="models/defender_protect_mlp_ctde_frozen6_20260721_105148/best_balanced_model.pth",
         chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        protect_checkpoint=None,
-        apply_controller_obstacle_mask=True,
-    ),
-    "baseline_skill": DefenderVariant(
-        name="baseline_skill",
-        env_strategy="skill_baseline",
-        role="frozen baseline bottom skill only; HRL-matched obstacle shield",
-        top_checkpoint=None,
-        baseline_checkpoint="models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth",
-        chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        protect_checkpoint="models/defender_protect2_dense_02-11-17-34/best_model.pth",
         apply_controller_obstacle_mask=True,
     ),
     "chase_skill": DefenderVariant(
@@ -104,19 +91,8 @@ DEFENDER_VARIANTS: Dict[str, DefenderVariant] = {
         env_strategy="skill_chase",
         role="frozen recurrent chase bottom skill only; HRL-matched obstacle shield",
         top_checkpoint=None,
-        baseline_checkpoint="models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth",
+        protect_checkpoint="models/defender_protect_mlp_ctde_repro_20260526/final_model.pth",
         chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        protect_checkpoint=None,
-        apply_controller_obstacle_mask=True,
-    ),
-    "protect2_skill": DefenderVariant(
-        name="protect2_skill",
-        env_strategy="skill_protect",
-        role="frozen protect2 skill only; HRL-matched obstacle shield",
-        top_checkpoint=None,
-        baseline_checkpoint="models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth",
-        chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        protect_checkpoint="models/defender_protect2_dense_02-11-17-34/best_model.pth",
         apply_controller_obstacle_mask=True,
     ),
 }
@@ -203,9 +179,8 @@ def defender_audit(names: Sequence[str]) -> List[Dict[str, object]]:
         checkpoints = {}
         for field, relative in (
             ("top", spec.top_checkpoint),
-            ("baseline", spec.baseline_checkpoint),
-            ("chase", spec.chase_checkpoint),
             ("protect", spec.protect_checkpoint),
+            ("chase", spec.chase_checkpoint),
         ):
             path = _checkpoint_path(relative)
             if path is None:
@@ -226,13 +201,9 @@ def _controller_config(spec: DefenderVariant) -> Dict[str, object]:
         "device": "cpu",
         "hrl_num_skills": 2,
         "top_policy_path": None if spec.top_checkpoint is None else str(_checkpoint_path(spec.top_checkpoint)),
-        "primary_skill_path": str(_checkpoint_path(spec.baseline_checkpoint)),
+        "primary_skill_path": str(_checkpoint_path(spec.protect_checkpoint)),
         "chase_skill_path": str(_checkpoint_path(spec.chase_checkpoint)),
-        "protect_skill_path": (
-            None
-            if spec.protect_checkpoint is None
-            else str(_checkpoint_path(spec.protect_checkpoint))
-        ),
+        "protect_skill_path": str(_checkpoint_path(spec.protect_checkpoint)),
         "apply_controller_obstacle_mask": bool(spec.apply_controller_obstacle_mask),
     }
 
@@ -282,7 +253,7 @@ def run_episode(
 
         controller = env.defender_policy
         skill_name = getattr(controller, "last_skill_name", None)
-        if skill_name in ("baseline", "chase"):
+        if skill_name in ("protect", "chase"):
             skill_name = str(skill_name)
             skill_counts[skill_name] += 1
             if first_skill is None:
@@ -317,7 +288,7 @@ def run_episode(
         "initial_target_distance": initial_target_distance,
         "final_target_distance": final_target_distance,
         "target_progress": initial_target_distance - final_target_distance,
-        "baseline_skill_rate": float(skill_counts["baseline"] / total_skill_steps) if total_skill_steps else 0.0,
+        "protect_skill_rate": float(skill_counts["protect"] / total_skill_steps) if total_skill_steps else 0.0,
         "chase_skill_rate": float(skill_counts["chase"] / total_skill_steps) if total_skill_steps else 0.0,
         "skill_switches": int(skill_switches),
         "first_skill": first_skill,
@@ -346,7 +317,7 @@ def summarize(rows: Sequence[Mapping[str, object]]) -> Dict[str, object]:
         "defender_path_length",
         "mean_attacker_defender_distance",
         "target_progress",
-        "baseline_skill_rate",
+        "protect_skill_rate",
         "chase_skill_rate",
         "skill_switches",
     ):
@@ -369,7 +340,7 @@ def _exact_discordant_p(left: int, right: int) -> float:
 def paired_comparison(
     records: Sequence[Mapping[str, object]],
     attacker_names: Sequence[str],
-    comparators: Sequence[str] = ("baseline_skill", "chase_skill"),
+    comparators: Sequence[str] = ("protect_skill", "chase_skill"),
 ) -> List[Dict[str, object]]:
     keyed = {
         (str(row["defender"]), str(row["attacker"]), int(row["seed"])): row
@@ -445,23 +416,23 @@ def hrl_skill_outcome_summary(
             if not selected:
                 continue
             steps = sum(int(row.get("episode_length", 0)) for row in selected)
-            baseline_steps = sum(
-                float(row.get("baseline_skill_rate", 0.0)) * int(row.get("episode_length", 0))
+            protect_steps = sum(
+                float(row.get("protect_skill_rate", 0.0)) * int(row.get("episode_length", 0))
                 for row in selected
             )
             rows.append({
                 "attacker": scope,
                 "outcome": outcome,
                 "episodes": len(selected),
-                "baseline_skill_rate_episode_mean": _mean(selected, "baseline_skill_rate"),
+                "protect_skill_rate_episode_mean": _mean(selected, "protect_skill_rate"),
                 "chase_skill_rate_episode_mean": _mean(selected, "chase_skill_rate"),
-                "baseline_skill_rate_step_weighted": baseline_steps / steps if steps else 0.0,
-                "chase_skill_rate_step_weighted": 1.0 - baseline_steps / steps if steps else 0.0,
-                "first_skill_baseline_rate": (
-                    sum(row.get("first_skill") == "baseline" for row in selected) / len(selected)
+                "protect_skill_rate_step_weighted": protect_steps / steps if steps else 0.0,
+                "chase_skill_rate_step_weighted": 1.0 - protect_steps / steps if steps else 0.0,
+                "first_skill_protect_rate": (
+                    sum(row.get("first_skill") == "protect" for row in selected) / len(selected)
                 ),
-                "last_skill_baseline_rate": (
-                    sum(row.get("last_skill") == "baseline" for row in selected) / len(selected)
+                "last_skill_protect_rate": (
+                    sum(row.get("last_skill") == "protect" for row in selected) / len(selected)
                 ),
                 "skill_switches_mean": _mean(selected, "skill_switches"),
                 "skill_switches_median": float(np.median([int(row.get("skill_switches", 0)) for row in selected])),
@@ -488,7 +459,7 @@ def hrl_switch_bin_summary(records: Sequence[Mapping[str, object]]) -> List[Dict
                 "target_success_rate": sum(bool(row.get("target_success")) for row in selected) / len(selected),
                 "defender_capture_rate": sum(bool(row.get("defender_capture")) for row in selected) / len(selected),
                 "timeout_rate": sum(bool(row.get("timeout")) for row in selected) / len(selected),
-                "baseline_skill_rate_mean": _mean(selected, "baseline_skill_rate"),
+                "protect_skill_rate_mean": _mean(selected, "protect_skill_rate"),
                 "episode_length_mean": _mean(selected, "episode_length"),
             })
     return rows
@@ -504,7 +475,7 @@ def paired_discordant_episodes(records: Sequence[Mapping[str, object]]) -> List[
     for (defender, attacker, seed), hrl in sorted(keyed.items()):
         if defender != "hrl":
             continue
-        for comparator in ("baseline_skill", "chase_skill"):
+        for comparator in ("protect_skill", "chase_skill"):
             other = keyed.get((comparator, attacker, seed))
             if other is None or bool(hrl["target_success"]) == bool(other["target_success"]):
                 continue
@@ -519,7 +490,7 @@ def paired_discordant_episodes(records: Sequence[Mapping[str, object]]) -> List[
                 ),
                 "hrl_outcome": hrl["outcome"],
                 "comparator_outcome": other["outcome"],
-                "hrl_baseline_skill_rate": hrl.get("baseline_skill_rate", 0.0),
+                "hrl_protect_skill_rate": hrl.get("protect_skill_rate", 0.0),
                 "hrl_chase_skill_rate": hrl.get("chase_skill_rate", 0.0),
                 "hrl_skill_switches": hrl.get("skill_switches", 0),
                 "hrl_first_skill": hrl.get("first_skill"),
@@ -686,12 +657,12 @@ def _plot_hrl_skill_mix(
         for row in summary_rows
         if str(row["defender"]) == "hrl"
     }
-    baseline = np.asarray([float(lookup[name]["baseline_skill_rate_mean"]) for name in attackers])
+    protect = np.asarray([float(lookup[name]["protect_skill_rate_mean"]) for name in attackers])
     chase = np.asarray([float(lookup[name]["chase_skill_rate_mean"]) for name in attackers])
     fig, ax = plt.subplots(figsize=(max(9.0, 1.2 * len(attackers)), 4.5), dpi=150)
     x = np.arange(len(attackers))
-    ax.bar(x, baseline, label="baseline skill", color="#4C78A8")
-    ax.bar(x, chase, bottom=baseline, label="chase skill", color="#F58518")
+    ax.bar(x, protect, label="protect skill", color="#4C78A8")
+    ax.bar(x, chase, bottom=protect, label="chase skill", color="#F58518")
     ax.set_xticks(x, labels=attackers, rotation=35, ha="right")
     ax.set_ylim(0.0, 1.0)
     ax.set_ylabel("HRL selection fraction")
@@ -891,7 +862,7 @@ def run_matrix(
     _write_csv(output_dir / "defender_overall.csv", overall_rows)
 
     hrl_comparators = tuple(
-        name for name in ("baseline_skill", "chase_skill")
+        name for name in ("protect_skill", "chase_skill")
         if name in defenders
     )
     paired_rows = (

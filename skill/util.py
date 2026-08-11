@@ -369,7 +369,7 @@ def make_trajectory_plot(trajectory_data, file_name, dpi=150):
             'obstacles': list of obstacle dicts from map_config
             'width', 'height': map dimensions
             'win': bool — whether defender won
-            'skill_mode': str — 'protect1', 'protect2', 'chase', etc.
+            'skill_mode': str — 'protect' or 'chase'.
             'episode_len': int (optional)
             'episode_reward': float (optional)
         file_name: output image path
@@ -454,11 +454,9 @@ def make_trajectory_plot(trajectory_data, file_name, dpi=150):
         'target': '目标点' if is_zh else 'Target',
         'skill_protect': '防守方技能：保护' if is_zh else 'Defender skill: protect',
         'skill_chase': '防守方技能：追击' if is_zh else 'Defender skill: chase',
-        'skill_baseline': '防守方技能：基线' if is_zh else 'Defender skill: baseline',
         'success': '成功' if is_zh else 'Success',
         'failure': '失败' if is_zh else 'Failure',
-        'mode_protect1': '保护阶段一（导航）' if is_zh else 'Protect Phase I (Navigation)',
-        'mode_protect2': '保护阶段二（防御）' if is_zh else 'Protect Phase II (Defense)',
+        'mode_protect': '保护技能' if is_zh else 'Protect',
         'mode_chase': '追击阶段' if is_zh else 'Chase (Pursuit)',
         'mode_tad': '完整任务' if is_zh else 'TAD (Full Task)',
         'mode_hrl': '分层技能控制' if is_zh else 'HRL',
@@ -524,7 +522,6 @@ def make_trajectory_plot(trajectory_data, file_name, dpi=150):
     skill_color_map = {
         'protect': colors.get('protect', '#4E79A7'),
         'chase': colors.get('chase', '#F28E2B'),
-        'baseline': colors.get('baseline', '#59A14F'),
     }
 
     # --- Trajectories ---
@@ -599,9 +596,8 @@ def make_trajectory_plot(trajectory_data, file_name, dpi=150):
         skill_legend_labels = {
             'protect': _label('skill_protect'),
             'chase': _label('skill_chase'),
-            'baseline': _label('skill_baseline'),
         }
-        for skill_name in ('protect', 'baseline', 'chase'):
+        for skill_name in ('protect', 'chase'):
             if skill_name in used_skills:
                 ax.plot([], [], color=skill_color_map[skill_name], linewidth=1.4, alpha=0.75,
                         label=skill_legend_labels[skill_name])
@@ -645,8 +641,7 @@ def make_trajectory_plot(trajectory_data, file_name, dpi=150):
     # --- Title ---
     if title_override is None:
         mode_labels = {
-            'protect1': _label('mode_protect1'),
-            'protect2': _label('mode_protect2'),
+            'protect': _label('mode_protect'),
             'chase': _label('mode_chase'),
             'tad': _label('mode_tad'),
             'hrl': _label('mode_hrl'),

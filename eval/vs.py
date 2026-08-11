@@ -137,7 +137,7 @@ from policies import (
 # Import Environments
 # Note: We use specific environments for different strategies to ensure correct observation/action spaces
 from envs.hrl_env import HRLEnv
-from envs.baseline_env import BaselineEnv
+from envs.protect_env import ProtectEnv
 from configs.hrl_config import HRLEnvTrainParameters
 from envs.tad_env import TADEnv, TrackingEnv  # Fallback/Standard
 from utils.path_risk import compute_path_risk_metrics
@@ -146,22 +146,19 @@ from utils.path_risk import compute_path_risk_metrics
 DEFAULT_MODEL_PATHS = {
     # Retained Chapter 2 A* top policy.
     'hrl': str(CHECKPOINTS_DIR / "hrl_ch2_m1_astar_cached_top_20260606_170036" / "best_model.pth"),
-    # Formal baseline End-to-End PPO (MLP CTDE).
-    'baseline': str(CHECKPOINTS_DIR / "defender_baseline_mlp_ctde_repro_20260526" / "final_model.pth"),
-    
-    # NMN技能模型
-    'protect': str(CHECKPOINTS_DIR / "defender_protect2_dense_02-11-17-34" / "best_model.pth"),
-    'protect2': str(CHECKPOINTS_DIR / "defender_protect2_dense_02-11-17-34" / "best_model.pth"),
+    # Active Protect skill.
+    'protect': str(CHECKPOINTS_DIR / "defender_protect_mlp_ctde_frozen6_20260721_105148" / "best_balanced_model.pth"),
     'chase': str(CHECKPOINTS_DIR / "defender_chase_nmn_dual_gru_raw_dense_05-05-19-12" / "final_model.pth"),
 }
 
 # --- HRL Skill Eval Defaults (edit here) ---
-# 技能个数固定为 2：baseline+chase。
+# 技能个数固定为 2：protect+chase。
 HRL_EVAL_NUM_SKILLS = 2
 # HRL技能路径统一由 DEFAULT_MODEL_PATHS 指定（单一来源）。
-HRL_EVAL_PROTECT_SKILL_PATH = DEFAULT_MODEL_PATHS.get('protect2')
+HRL_EVAL_PROTECT_SKILL_PATH = str(
+    CHECKPOINTS_DIR / "defender_protect_mlp_ctde_repro_20260526" / "final_model.pth"
+)
 HRL_EVAL_CHASE_SKILL_PATH = DEFAULT_MODEL_PATHS.get('chase')
-HRL_EVAL_BASELINE_SKILL_PATH = DEFAULT_MODEL_PATHS.get('baseline')
 
 ALL_ATTACKER_STRATEGIES = [
     'default',
@@ -181,10 +178,9 @@ HRL_DEFENDER_STRATEGIES = ['hrl']
 HRL_RULE_DEFENDER_STRATEGIES = ['hrl_rule_geo_trend', 'hrl_rule_apollonius_label']
 RL_DEFENDER_STRATEGIES = [
     'rl', 'hrl',
-    'baseline',
-    'protect', 'protect2', 'chase', 'protect1_nmn'
+    'protect', 'chase'
 ]
-TEST_DEFENDER_STRATEGIES = ['hrl', 'hrl_rule_geo_trend', 'hrl_rule_apollonius_label', 'baseline', 'protect2', 'chase']
+TEST_DEFENDER_STRATEGIES = ['hrl', 'hrl_rule_geo_trend', 'hrl_rule_apollonius_label', 'protect', 'chase']
 
 def _is_hrl_like_strategy(strategy: str) -> bool:
     return strategy in HRL_DEFENDER_STRATEGIES or strategy in HRL_RULE_DEFENDER_STRATEGIES
@@ -193,9 +189,9 @@ def _is_hrl_like_strategy(strategy: str) -> bool:
 def _predicted_top_skill_from_action(action: np.ndarray) -> str:
     arr = np.asarray(action, dtype=np.float32).reshape(-1)
     if arr.size >= 2:
-        return "chase" if float(arr[1]) >= float(arr[0]) else "baseline"
+        return "chase" if float(arr[1]) >= float(arr[0]) else "protect"
     if arr.size == 1:
-        return "chase" if int(np.rint(float(arr[0]))) == 1 else "baseline"
+        return "chase" if int(np.rint(float(arr[0]))) == 1 else "protect"
     return "unknown"
 
 
@@ -213,7 +209,7 @@ def _hrl_step_trace_row(
 ) -> dict:
     arr = np.asarray(action, dtype=np.float32).reshape(-1)
     action_format = "two_skill_scores" if arr.size >= 2 else "discrete_skill_idx" if arr.size == 1 else "unknown"
-    baseline_logit = float(arr[0]) if arr.size >= 2 else None
+    protect_logit = float(arr[0]) if arr.size >= 2 else None
     chase_logit = float(arr[1]) if arr.size >= 2 else None
     return {
         "episode": int(episode),
@@ -227,7 +223,7 @@ def _hrl_step_trace_row(
         "action_format": action_format,
         "top_action_0": float(arr[0]) if arr.size >= 1 else None,
         "top_action_1": float(arr[1]) if arr.size >= 2 else None,
-        "baseline_logit": baseline_logit,
+        "protect_logit": protect_logit,
         "chase_logit": chase_logit,
         "predicted_top_skill": _predicted_top_skill_from_action(action),
         "selected_skill": str(selected_skill or "unknown"),
@@ -285,8 +281,8 @@ def _maybe_enable_eval_defender_mask(env, defender_strategy: str):
     strategy = str(defender_strategy).strip().lower()
     enable_for_hrl = strategy == 'hrl'
     enable_for_chase = strategy == 'chase' and _read_env_bool('VS_CHASE_SAFE_MASK_ENABLE', False)
-    enable_for_baseline = strategy == 'baseline' and _read_env_bool('VS_BASELINE_SAFE_MASK_ENABLE', False)
-    if not (enable_for_hrl or enable_for_chase or enable_for_baseline):
+    enable_for_protect = strategy == 'protect' and _read_env_bool('VS_PROTECT_SAFE_MASK_ENABLE', False)
+    if not (enable_for_hrl or enable_for_chase or enable_for_protect):
         return
     params = _get_hrl_eval_defender_mask_params()
     if not params:
@@ -294,7 +290,7 @@ def _maybe_enable_eval_defender_mask(env, defender_strategy: str):
     base_env = env.env if hasattr(env, 'env') else env
     if hasattr(base_env, 'configure_hard_action_mask'):
         base_env.configure_hard_action_mask(True, role='defender', **params)
-        label = 'HRL' if enable_for_hrl else ('Chase' if enable_for_chase else 'Baseline')
+        label = 'HRL' if enable_for_hrl else ('Chase' if enable_for_chase else 'Protect')
         print(f"[Eval {label} SafeMask] {params}")
 
 
@@ -402,7 +398,7 @@ def _resolve_selected_skill_from_info(info: Dict) -> Optional[str]:
     selected_skill = info.get('selected_skill')
     if isinstance(selected_skill, str):
         selected_skill = selected_skill.strip().lower()
-        if selected_skill in ('protect', 'chase', 'baseline'):
+        if selected_skill in ('protect', 'chase'):
             return selected_skill
 
     top_idx = info.get('top_skill_idx')
@@ -417,16 +413,14 @@ def _resolve_selected_skill_from_info(info: Dict) -> Optional[str]:
     skill_names = info.get('skill_names')
     if isinstance(skill_names, (list, tuple)) and top_idx < len(skill_names):
         name = str(skill_names[top_idx]).strip().lower()
-        if name in ('protect', 'chase', 'baseline'):
+        if name in ('protect', 'chase'):
             return name
 
-    # Backward compatibility for old env info without skill_names.
+    # Two-skill action order is Protect, Chase.
     if top_idx == 0:
         return 'protect'
     if top_idx == 1:
         return 'chase'
-    if top_idx == 2:
-        return 'baseline'
     return None
 
 
@@ -480,11 +474,8 @@ def _default_model_path(strategy: str) -> Optional[str]:
         return _find_latest_online_hrl_checkpoint()
 
     prefix_map = {
-        'protect': ['defender_protect_dense', 'defender_protect1_dense', 'defender_protect2_dense'],
-        'protect2': ['defender_protect2_dense', 'defender_protect1_dense', 'defender_protect_dense'],
+        'protect': ['defender_protect_mlp_ctde_frozen6', 'defender_protect_dense'],
         'chase': ['defender_chase_nmn_dual_gru_raw_dense'],
-        'protect1_nmn': ['defender_protect1_dense'],
-        'baseline': ['defender_baseline_mlp_ctde_repro'],
     }
     prefixes = prefix_map.get(strategy)
     if not prefixes:
@@ -496,9 +487,8 @@ def _resolve_hrl_skill_paths(
     strategy: str = 'hrl',
     protect_path: Optional[str] = None,
     chase_path: Optional[str] = None,
-    baseline_path: Optional[str] = None,
     num_skills: Optional[int] = None,
-) -> Tuple[Optional[str], Optional[str], Optional[str], str]:
+) -> Tuple[Optional[str], Optional[str]]:
     if num_skills is not None:
         num_skills = int(num_skills)
         if num_skills != 2:
@@ -506,15 +496,9 @@ def _resolve_hrl_skill_paths(
 
     protect_path = None if protect_path is None else str(protect_path).strip() or None
     chase_path = None if chase_path is None else str(chase_path).strip() or None
-    baseline_path = None if baseline_path is None else str(baseline_path).strip() or None
-
     cfg_protect = None if HRL_EVAL_PROTECT_SKILL_PATH is None else str(HRL_EVAL_PROTECT_SKILL_PATH).strip() or None
     cfg_chase = None if HRL_EVAL_CHASE_SKILL_PATH is None else str(HRL_EVAL_CHASE_SKILL_PATH).strip() or None
-    cfg_baseline = None if HRL_EVAL_BASELINE_SKILL_PATH is None else str(HRL_EVAL_BASELINE_SKILL_PATH).strip() or None
-
-    primary_skill_name = 'baseline'
-    protect_path = baseline_path or cfg_baseline or protect_path or cfg_protect or _default_model_path('baseline')
-    baseline_path = None
+    protect_path = protect_path or cfg_protect
     chase_path = chase_path or cfg_chase or _default_model_path('chase')
 
     if not protect_path:
@@ -522,7 +506,7 @@ def _resolve_hrl_skill_paths(
     if not chase_path:
         raise FileNotFoundError(f'{strategy}评估缺少chase skill checkpoint')
 
-    return protect_path, chase_path, baseline_path, primary_skill_name
+    return protect_path, chase_path
 
 
 
@@ -566,7 +550,6 @@ class EvalWorker:
         hrl_num_skills: Optional[int] = None,
         hrl_protect_skill_path: Optional[str] = None,
         hrl_chase_skill_path: Optional[str] = None,
-        hrl_baseline_skill_path: Optional[str] = None,
         use_privileged_classifier: bool = False,
         eval_use_random_seed: bool = True,
         eval_fixed_seed: int = 42,
@@ -599,7 +582,6 @@ class EvalWorker:
                 hrl_num_skills=hrl_num_skills,
                 hrl_protect_skill_path=hrl_protect_skill_path,
                 hrl_chase_skill_path=hrl_chase_skill_path,
-                hrl_baseline_skill_path=hrl_baseline_skill_path,
                 use_privileged_classifier=use_privileged_classifier,
             )
         finally:
@@ -903,7 +885,6 @@ SAVED_METRIC_EXCLUDE_KEYS = {
 HRL_SELECTION_RATE_PREFIXES = (
     'hrl_protect_selection_rate',
     'hrl_chase_selection_rate',
-    'hrl_baseline_selection_rate',
 )
 
 FORMATTED_SUMMARY_FIELD_ORDER = [
@@ -916,7 +897,6 @@ FORMATTED_SUMMARY_FIELD_ORDER = [
     'mean_episode_length',
     'hrl_protect_selection_rate',
     'hrl_chase_selection_rate',
-    'hrl_baseline_selection_rate',
 ]
 
 RAW_MATCHUP_FIELD_ORDER = [
@@ -929,7 +909,6 @@ RAW_MATCHUP_FIELD_ORDER = [
     'mean_episode_length',
     'hrl_protect_selection_rate',
     'hrl_chase_selection_rate',
-    'hrl_baseline_selection_rate',
 ]
 
 
@@ -952,8 +931,6 @@ def _active_hrl_selection_prefixes(
         num_skills = None
 
     if num_skills == 2:
-        return ['hrl_chase_selection_rate', 'hrl_baseline_selection_rate']
-    if num_skills == 3:
         return list(HRL_SELECTION_RATE_PREFIXES)
 
     active = []
@@ -1596,7 +1573,6 @@ def run_evaluation(
     hrl_num_skills: Optional[int] = HRL_EVAL_NUM_SKILLS,
     hrl_protect_skill_path: Optional[str] = HRL_EVAL_PROTECT_SKILL_PATH,
     hrl_chase_skill_path: Optional[str] = HRL_EVAL_CHASE_SKILL_PATH,
-    hrl_baseline_skill_path: Optional[str] = HRL_EVAL_BASELINE_SKILL_PATH,
     use_privileged_classifier: bool = False,
 ) -> Tuple[Dict, str]:
     _configure_torch_eval_runtime()
@@ -1672,7 +1648,7 @@ def run_evaluation(
                 futures.append(w.run_episodes.remote(
                     defender_strategy, resolved_attacker_strategy, resolved_attacker_strategy_params, n_ep,
                     defender_checkpoint, attacker_checkpoint, network_type, ep_offset,
-                    hrl_num_skills, hrl_protect_skill_path, hrl_chase_skill_path, hrl_baseline_skill_path,
+                    hrl_num_skills, hrl_protect_skill_path, hrl_chase_skill_path,
                     use_privileged_classifier,
                     bool(SetupParameters.EVAL_USE_RANDOM_SEED),
                     int(SetupParameters.EVAL_FIXED_SEED),
@@ -1702,7 +1678,6 @@ def run_evaluation(
                 hrl_num_skills=hrl_num_skills,
                 hrl_protect_skill_path=hrl_protect_skill_path,
                 hrl_chase_skill_path=hrl_chase_skill_path,
-                hrl_baseline_skill_path=hrl_baseline_skill_path,
                 use_privileged_classifier=use_privileged_classifier,
             )
             if need_gif_frames:
@@ -1723,7 +1698,6 @@ def run_evaluation(
             hrl_num_skills=hrl_num_skills,
             hrl_protect_skill_path=hrl_protect_skill_path,
             hrl_chase_skill_path=hrl_chase_skill_path,
-            hrl_baseline_skill_path=hrl_baseline_skill_path,
             use_privileged_classifier=use_privileged_classifier,
         )
         trajectory_data_list = stats.pop('_trajectory_data_list', [])
@@ -1740,10 +1714,6 @@ def run_evaluation(
     hrl_chase_selection_rate, hrl_chase_selection_rate_std = _mean_std(
         stats.get('episode_hrl_skill_chase_selection_rate', [])
     )
-    hrl_baseline_selection_rate, hrl_baseline_selection_rate_std = _mean_std(
-        stats.get('episode_hrl_skill_baseline_selection_rate', [])
-    )
-
     success_rate, success_rate_ci_low, success_rate_ci_high = _proportion_ci95(stats['defender_wins'])
     defender_win_rate = success_rate
     defender_win_rate_ci_low = success_rate_ci_low
@@ -1799,8 +1769,6 @@ def run_evaluation(
         'hrl_protect_selection_rate_std': hrl_protect_selection_rate_std,
         'hrl_chase_selection_rate': hrl_chase_selection_rate,
         'hrl_chase_selection_rate_std': hrl_chase_selection_rate_std,
-        'hrl_baseline_selection_rate': hrl_baseline_selection_rate,
-        'hrl_baseline_selection_rate_std': hrl_baseline_selection_rate_std,
     }
 
     # GIF handling
@@ -1871,8 +1839,7 @@ def run_evaluation(
         print(
             f"  HRL Skill选择占比: "
             f"protect={_fmt_metric_pm_from_row(final_results, 'hrl_protect_selection_rate', scale=100.0, decimals=1, suffix='%')} "
-            f"chase={_fmt_metric_pm_from_row(final_results, 'hrl_chase_selection_rate', scale=100.0, decimals=1, suffix='%')} "
-            f"baseline={_fmt_metric_pm_from_row(final_results, 'hrl_baseline_selection_rate', scale=100.0, decimals=1, suffix='%')}"
+            f"chase={_fmt_metric_pm_from_row(final_results, 'hrl_chase_selection_rate', scale=100.0, decimals=1, suffix='%')}"
         )
     return final_results, gif_out
 
@@ -1884,7 +1851,6 @@ def _run_serial_evaluation(
     hrl_num_skills: Optional[int] = None,
     hrl_protect_skill_path: Optional[str] = None,
     hrl_chase_skill_path: Optional[str] = None,
-    hrl_baseline_skill_path: Optional[str] = None,
     use_privileged_classifier: bool = False,
 ) -> dict:
     """串行运行episodes（用于GIF保存或单episode模式）。"""
@@ -1903,18 +1869,16 @@ def _run_serial_evaluation(
         env_attacker_strategy = 'static'
 
     if _is_hrl_like_strategy(defender_strategy):
-        protect_path, chase_path, baseline_path, primary_skill_name = _resolve_hrl_skill_paths(
+        protect_path, chase_path = _resolve_hrl_skill_paths(
             strategy=defender_strategy,
             protect_path=hrl_protect_skill_path,
             chase_path=hrl_chase_skill_path,
-            baseline_path=hrl_baseline_skill_path,
             num_skills=hrl_num_skills,
         )
         env = HRLEnv(
             protect_model_path=protect_path,
             chase_model_path=chase_path,
-            baseline_model_path=baseline_path,
-            primary_skill_name=primary_skill_name,
+            primary_skill_name='protect',
             attacker_strategy=env_attacker_strategy,
             attacker_strategy_params=attacker_strategy_params,
             device=device,
@@ -1924,7 +1888,7 @@ def _run_serial_evaluation(
         )
         is_gym_wrapper = True
     elif runtime_strategy in RL_DEFENDER_STRATEGIES:
-        env = BaselineEnv(
+        env = ProtectEnv(
             attacker_strategy=env_attacker_strategy,
             attacker_strategy_params=attacker_strategy_params,
         )
@@ -1959,7 +1923,6 @@ def _run_serial_evaluation(
         'defender_collisions': [],
         'episode_hrl_skill_protect_selection_rate': [],
         'episode_hrl_skill_chase_selection_rate': [],
-        'episode_hrl_skill_baseline_selection_rate': [],
         'episode_hrl_step_trace': [],
         'episode_defender_path_length': [],
     }
@@ -1990,7 +1953,6 @@ def _run_serial_evaluation(
         frames = []
         ep_hrl_protect_selected = 0
         ep_hrl_chase_selected = 0
-        ep_hrl_baseline_selected = 0
         record_traj = bool(episode < collect_trajectory_episodes)
         ep_def_traj = []
         ep_atk_traj = []
@@ -2008,7 +1970,7 @@ def _run_serial_evaluation(
                 record_traj = False
 
         while not done:
-            step_idx = ep_hrl_protect_selected + ep_hrl_chase_selected + ep_hrl_baseline_selected
+            step_idx = ep_hrl_protect_selected + ep_hrl_chase_selected
             pre_step_risk_margin = _current_task_margin(env) if record_hrl_step_trace else None
             def_action = defender_eval.get_action(def_obs, env, att_obs)
             if is_gym_wrapper and attacker_strategy in LEARNED_ATTACKER_STRATEGIES:
@@ -2035,8 +1997,6 @@ def _run_serial_evaluation(
                     ep_hrl_protect_selected += 1
                 elif current_skill == 'chase':
                     ep_hrl_chase_selected += 1
-                elif current_skill == 'baseline':
-                    ep_hrl_baseline_selected += 1
                 if record_hrl_step_trace and (
                     hrl_step_trace_max_steps <= 0 or len(ep_hrl_step_trace) < hrl_step_trace_max_steps
                 ):
@@ -2081,14 +2041,14 @@ def _run_serial_evaluation(
                     ep_def_traj.append((priv['defender']['center_x'], priv['defender']['center_y']))
                     ep_atk_traj.append((priv['attacker']['center_x'], priv['attacker']['center_y']))
                     if _is_hrl_like_strategy(defender_strategy):
-                        ep_def_skill_trace.append(current_skill if current_skill in ('protect', 'chase', 'baseline') else 'unknown')
+                        ep_def_skill_trace.append(current_skill if current_skill in ('protect', 'chase') else 'unknown')
 
         # Record Stats
         reason = info.get('reason', 'unknown')
         stats['reasons'].append(reason)
         ep_len = _resolve_episode_length(info, env)
         stats['episode_lengths'].append(int(ep_len))
-        ep_hrl_total_selected = ep_hrl_protect_selected + ep_hrl_chase_selected + ep_hrl_baseline_selected
+        ep_hrl_total_selected = ep_hrl_protect_selected + ep_hrl_chase_selected
         if _is_hrl_like_strategy(defender_strategy):
             if ep_hrl_total_selected > 0:
                 stats['episode_hrl_skill_protect_selection_rate'].append(
@@ -2097,13 +2057,9 @@ def _run_serial_evaluation(
                 stats['episode_hrl_skill_chase_selection_rate'].append(
                     float(ep_hrl_chase_selected) / float(ep_hrl_total_selected)
                 )
-                stats['episode_hrl_skill_baseline_selection_rate'].append(
-                    float(ep_hrl_baseline_selected) / float(ep_hrl_total_selected)
-                )
             else:
                 stats['episode_hrl_skill_protect_selection_rate'].append(0.0)
                 stats['episode_hrl_skill_chase_selection_rate'].append(0.0)
-                stats['episode_hrl_skill_baseline_selection_rate'].append(0.0)
             if record_hrl_step_trace:
                 stats['episode_hrl_step_trace'].append(ep_hrl_step_trace)
         stats['episode_defender_path_length'].append(_extract_defender_path_length(env))
@@ -2180,7 +2136,6 @@ def run_suite(
     hrl_num_skills: Optional[int] = HRL_EVAL_NUM_SKILLS,
     hrl_protect_skill_path: Optional[str] = HRL_EVAL_PROTECT_SKILL_PATH,
     hrl_chase_skill_path: Optional[str] = HRL_EVAL_CHASE_SKILL_PATH,
-    hrl_baseline_skill_path: Optional[str] = HRL_EVAL_BASELINE_SKILL_PATH,
     use_privileged_classifier: bool = False,
 ):
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -2271,7 +2226,6 @@ def run_suite(
             hrl_num_skills=hrl_num_skills,
             hrl_protect_skill_path=hrl_protect_skill_path,
             hrl_chase_skill_path=hrl_chase_skill_path,
-            hrl_baseline_skill_path=hrl_baseline_skill_path,
             use_privileged_classifier=use_privileged_classifier,
         )
 
@@ -2305,8 +2259,6 @@ def run_suite(
             'hrl_protect_selection_rate_std': metrics['hrl_protect_selection_rate_std'],
             'hrl_chase_selection_rate': metrics['hrl_chase_selection_rate'],
             'hrl_chase_selection_rate_std': metrics['hrl_chase_selection_rate_std'],
-            'hrl_baseline_selection_rate': metrics.get('hrl_baseline_selection_rate'),
-            'hrl_baseline_selection_rate_std': metrics.get('hrl_baseline_selection_rate_std'),
         }
         summary_results.append(row)
         matchup_results.append(row.copy())
@@ -2356,16 +2308,15 @@ def run_suite(
         },
     }
     if any(cfg['defender'] in HRL_DEFENDER_STRATEGIES for cfg in expanded_configs):
-        resolved_primary_path, resolved_chase_path, resolved_baseline_path, primary_skill_name = _resolve_hrl_skill_paths(
+        resolved_primary_path, resolved_chase_path = _resolve_hrl_skill_paths(
             strategy='hrl',
             protect_path=hrl_protect_skill_path,
             chase_path=hrl_chase_skill_path,
-            baseline_path=hrl_baseline_skill_path,
             num_skills=hrl_num_skills,
         )
         model_path_info['hrl_skills'] = {
             'num_skills': int(hrl_num_skills) if hrl_num_skills is not None else None,
-            'primary_skill_name': primary_skill_name,
+            'primary_skill_name': 'protect',
             'primary_skill': {
                 'path': resolved_primary_path,
                 'network_type': _safe_detect_checkpoint_network_type(resolved_primary_path),
@@ -2373,10 +2324,6 @@ def run_suite(
             'chase_skill': {
                 'path': resolved_chase_path,
                 'network_type': _safe_detect_checkpoint_network_type(resolved_chase_path),
-            },
-            'baseline_skill': {
-                'path': resolved_baseline_path,
-                'network_type': _safe_detect_checkpoint_network_type(resolved_baseline_path),
             },
         }
     with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
@@ -2438,9 +2385,9 @@ def run_suite(
         f"{'Defender':<20} {'Attacker':<24} {'胜率':>{metric_width}} {'A胜率':>{metric_width}} "
         f"{'平局':>{metric_width}} {'D抓获':>{metric_width}} {'A抓获':>{metric_width}} "
         f"{'D碰撞':>{metric_width}} {'平均步数':>{metric_width}} {'平均路径':>{metric_width}} "
-        f"{'Prot%':>{metric_width}} {'Chase%':>{metric_width}} {'Base%':>{metric_width}}"
+        f"{'Protect%':>{metric_width}} {'Chase%':>{metric_width}}"
     )
-    print("-" * (20 + 24 + metric_width * 11 + 12))
+    print("-" * (20 + 24 + metric_width * 10 + 12))
     for res in summary_results:
         protect_str = _fmt_metric_pm_from_row(
             res,
@@ -2456,13 +2403,6 @@ def run_suite(
             decimals=1,
             suffix='%',
         )
-        baseline_str = _fmt_metric_pm_from_row(
-            res,
-            'hrl_baseline_selection_rate',
-            scale=100.0,
-            decimals=1,
-            suffix='%',
-        )
         print(
             f"{res['defender']:<20} {res['attacker']:<24} "
             f"{_fmt_metric_ci_pm_from_row(res, 'success_rate', scale=100.0, decimals=1, suffix='%'):>{metric_width}} "
@@ -2473,12 +2413,12 @@ def run_suite(
             f"{_fmt_metric_ci_pm_from_row(res, 'defender_collision_rate', scale=100.0, decimals=1, suffix='%'):>{metric_width}} "
             f"{_fmt_metric_pm_from_row(res, 'mean_episode_length', decimals=1):>{metric_width}} "
             f"{_fmt_metric_pm(res['defender_path_length_mean'], res['defender_path_length_std'], decimals=1):>{metric_width}} "
-            f"{protect_str:>{metric_width}} {chase_str:>{metric_width}} {baseline_str:>{metric_width}}"
+            f"{protect_str:>{metric_width}} {chase_str:>{metric_width}}"
         )
 
     overall_avg_row = _build_average_row(summary_results, defender_label='AVERAGE', attacker_label='ALL')
     if overall_avg_row is not None:
-        print("-" * (20 + 24 + metric_width * 11 + 12))
+        print("-" * (20 + 24 + metric_width * 10 + 12))
         print(
             f"{overall_avg_row['defender']:<20} {overall_avg_row['attacker']:<24} "
             f"{_fmt_metric_value(overall_avg_row.get('success_rate'), scale=100.0, decimals=1, suffix='%'):>{metric_width}} "
@@ -2490,8 +2430,7 @@ def run_suite(
             f"{_fmt_metric_value(overall_avg_row.get('mean_episode_length'), decimals=1):>{metric_width}} "
             f"{_fmt_metric_value(overall_avg_row.get('defender_path_length_mean'), decimals=1):>{metric_width}} "
             f"{_fmt_metric_value(overall_avg_row.get('hrl_protect_selection_rate'), scale=100.0, decimals=1, suffix='%'):>{metric_width}} "
-            f"{_fmt_metric_value(overall_avg_row.get('hrl_chase_selection_rate'), scale=100.0, decimals=1, suffix='%'):>{metric_width}} "
-            f"{_fmt_metric_value(overall_avg_row.get('hrl_baseline_selection_rate'), scale=100.0, decimals=1, suffix='%'):>{metric_width}}"
+            f"{_fmt_metric_value(overall_avg_row.get('hrl_chase_selection_rate'), scale=100.0, decimals=1, suffix='%'):>{metric_width}}"
         )
 
 # --- 交互式模式 ---
@@ -2512,8 +2451,7 @@ def interactive_suite_mode():
         'hrl': 'HRL分层策略(高层调度)',
         'hrl_rule_geo_trend': '规则上层HRL(几何+趋势)',
         'hrl_rule_apollonius_label': '规则上层HRL(阿波罗尼斯方向匹配)',
-        'baseline': 'Baseline端到端(最终模型)',
-        'protect2': 'Protect技能(NMN)',
+        'protect': 'Protect技能',
         'chase': 'Chase技能(NMN)',
     }
     attacker_names = {
@@ -2633,7 +2571,7 @@ def main():
     
     # 命令行参数（用于非交互模式）
     parser.add_argument('--defender', '-d', default='hrl', help="防御者策略")
-    parser.add_argument('--defenders', type=str, default=None, help="多个防御者，用逗号分隔（如 hrl,baseline）")
+    parser.add_argument('--defenders', type=str, default=None, help="多个防御者，用逗号分隔（如 hrl,protect）")
     parser.add_argument('--attacker', '-a', default='attacker_global', help="攻击者策略")
     parser.add_argument('--episodes', '-n', type=int, default=500, help="评估回合数")
     parser.add_argument('--gif', action='store_true', help="保存GIF")
@@ -2641,13 +2579,11 @@ def main():
     parser.add_argument('--checkpoint', type=str, default=None, help="模型检查点路径")
     parser.add_argument('--attacker-checkpoint', type=str, default=None, help="学习型攻击者 checkpoint 路径")
     parser.add_argument('--hrl-num-skills', type=int, choices=[2], default=HRL_EVAL_NUM_SKILLS,
-                        help="HRL技能个数，固定为2：baseline+chase")
+                        help="HRL技能个数，固定为2：protect+chase")
     parser.add_argument('--hrl-protect-skill-path', type=str, default=HRL_EVAL_PROTECT_SKILL_PATH,
-                        help="HRL主技能槽(3技能时=protect)模型路径（覆盖自动查找）")
+                        help="HRL Protect技能模型路径（覆盖自动查找）")
     parser.add_argument('--hrl-chase-skill-path', type=str, default=HRL_EVAL_CHASE_SKILL_PATH,
                         help="HRL chase技能模型路径（覆盖自动查找）")
-    parser.add_argument('--hrl-baseline-skill-path', type=str, default=HRL_EVAL_BASELINE_SKILL_PATH,
-                        help="HRL baseline技能模型路径（覆盖自动查找）")
     parser.add_argument('--network-type', type=str, default=None,
                         choices=['nmn', 'nmn_ctde', 'nmn_ctde_shared', 'nmn_ctde_task_shared', 'nmn_ctde_task_shared_distill', 'nmn_no_shared_radar', 'nmn_dual_gru_raw', 'nmn_dual_gru_raw_ctde', 'nmn_gru', 'mlp', 'mlp_ctde', 'mlp_gru', 'mlp_noctde', 'hrl_top', 'hrl_top_noctde', 'hrl_top_gru', 'hrl_top_dual_gru_raw'],
                         help="网络类型，不指定则自动检测")
@@ -2694,9 +2630,8 @@ def main():
         # Default fixed suite
         default_suite = [
             {'defender': 'chase', 'attacker': 'all'},
-            {'defender': 'protect2', 'attacker': 'all'},
+            {'defender': 'protect', 'attacker': 'all'},
             {'defender': 'hrl', 'attacker': 'all'},
-            {'defender': 'baseline', 'attacker': 'all'},
         ]
         run_suite(
             default_suite,
@@ -2706,7 +2641,6 @@ def main():
             hrl_num_skills=args.hrl_num_skills,
             hrl_protect_skill_path=args.hrl_protect_skill_path,
             hrl_chase_skill_path=args.hrl_chase_skill_path,
-            hrl_baseline_skill_path=args.hrl_baseline_skill_path,
             use_privileged_classifier=args.use_privileged_classifier,
         )
     elif args.no_interactive:
@@ -2745,7 +2679,6 @@ def main():
                 hrl_num_skills=args.hrl_num_skills,
                 hrl_protect_skill_path=args.hrl_protect_skill_path,
                 hrl_chase_skill_path=args.hrl_chase_skill_path,
-                hrl_baseline_skill_path=args.hrl_baseline_skill_path,
                 use_privileged_classifier=args.use_privileged_classifier,
             )
             return
@@ -2776,7 +2709,6 @@ def main():
                 hrl_num_skills=args.hrl_num_skills,
                 hrl_protect_skill_path=args.hrl_protect_skill_path,
                 hrl_chase_skill_path=args.hrl_chase_skill_path,
-                hrl_baseline_skill_path=args.hrl_baseline_skill_path,
                 use_privileged_classifier=args.use_privileged_classifier,
             )
             return
@@ -2810,7 +2742,6 @@ def main():
             hrl_num_skills=args.hrl_num_skills,
             hrl_protect_skill_path=args.hrl_protect_skill_path,
             hrl_chase_skill_path=args.hrl_chase_skill_path,
-            hrl_baseline_skill_path=args.hrl_baseline_skill_path,
             use_privileged_classifier=args.use_privileged_classifier,
             seed_offset=int(args.eval_seed_offset),
         )
@@ -2831,8 +2762,7 @@ def main():
             print(
                 f"[EVAL HRL SKILL] "
                 f"protect={_fmt_metric_pm_from_row(metrics, 'hrl_protect_selection_rate', scale=100.0, decimals=1, suffix='%')}, "
-                f"chase={_fmt_metric_pm_from_row(metrics, 'hrl_chase_selection_rate', scale=100.0, decimals=1, suffix='%')}, "
-                f"baseline={_fmt_metric_pm_from_row(metrics, 'hrl_baseline_selection_rate', scale=100.0, decimals=1, suffix='%')}"
+                f"chase={_fmt_metric_pm_from_row(metrics, 'hrl_chase_selection_rate', scale=100.0, decimals=1, suffix='%')}"
             )
         if ray.is_initialized():
             ray.shutdown()

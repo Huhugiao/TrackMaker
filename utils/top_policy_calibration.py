@@ -36,19 +36,19 @@ def apply_chase_logit_bias(
 def build_two_skill_class_weights(
     skill_names: Sequence[str],
     *,
-    baseline_weight: float = 1.0,
+    protect_weight: float = 1.0,
     chase_weight: float = 1.0,
     device=None,
     dtype=torch.float32,
 ) -> torch.Tensor:
-    """Build class weights ordered like skill_names for baseline/chase training."""
+    """Build class weights ordered like skill_names for Protect/Chase training."""
     weights = []
     for skill in skill_names:
         key = str(skill).strip().lower()
         if key == "chase":
             weights.append(float(chase_weight))
-        elif key == "baseline":
-            weights.append(float(baseline_weight))
+        elif key == "protect":
+            weights.append(float(protect_weight))
         else:
             weights.append(1.0)
     return torch.as_tensor(weights, dtype=dtype, device=device)

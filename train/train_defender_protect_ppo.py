@@ -1,4 +1,4 @@
-"""Train a fresh Protect Defender with the proven legacy baseline reward."""
+"""Train a fresh Protect Defender against the frozen Attacker pool."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _configure_environment(
     args,
     output_dir: Path,
     *,
-    skill_mode: str = "baseline",
+    skill_mode: str = "protect",
     policy_name: str = "protect",
 ) -> None:
     learned_specs = resolved_learned_attacker_specs(PROJECT_ROOT)
@@ -118,7 +118,7 @@ def _configure_environment(
         os.environ[name] = str(value)
 
 
-def _dry_run(seed: int, *, reward_mode: str = "baseline") -> int:
+def _dry_run(seed: int, *, reward_mode: str = "protect") -> int:
     """Load every frozen opponent and complete one real-environment transition."""
     import numpy as np
 
@@ -207,7 +207,7 @@ def main(argv=None) -> int:
         raise FileExistsError(f"refusing to overwrite non-empty run: {output_dir}")
     _configure_environment(args, output_dir)
     print(
-        f"Protect Defender PPO | reward=legacy_baseline | network={args.network_type} | "
+        f"Protect Defender PPO | reward=protect | network={args.network_type} | "
         f"steps={args.max_steps:,} | attackers={len(FROZEN_ATTACKER_POOL)} | "
         f"output={output_dir}",
         flush=True,

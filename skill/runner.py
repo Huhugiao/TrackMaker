@@ -62,7 +62,7 @@ class RewardNormalizer:
     只做 scale，不做 shift（不减均值），避免改变最优策略。
     
     原理：
-    - 在训练前期，reward 的方差可能很大（如 protect1 的 -100 累积惩罚）
+    - 在训练前期，reward 的方差可能很大
     - 通过除以 sqrt(var) 将 reward 缩放到稳定范围
     - running mean/var 使用 Welford 在线算法更新
     
@@ -416,14 +416,14 @@ class Runner:
 
         reward_mode_cfg = self.env_configs.get('reward_mode', None)
         if reward_mode_cfg is None:
-            if self.skill_mode == 'baseline':
-                reward_mode = 'baseline'
+            if self.skill_mode == 'protect':
+                reward_mode = 'protect'
             else:
                 reward_mode = self.skill_mode
         else:
             reward_mode = str(reward_mode_cfg).strip().lower()
-            if reward_mode != 'baseline' and self.skill_mode == 'baseline':
-                reward_mode = 'baseline'
+            if reward_mode != 'protect' and self.skill_mode == 'protect':
+                reward_mode = 'protect'
 
         self.env = TADEnv(
             reward_mode=reward_mode,
@@ -435,7 +435,7 @@ class Runner:
             expert_skill_mode = str(
                 self.env_configs.get('expert_skill_mode', self.skill_mode)
             ).strip().lower()
-            if expert_skill_mode not in ('protect', 'protect1', 'protect2', 'chase'):
+            if expert_skill_mode not in ('protect', 'chase'):
                 expert_skill_mode = 'chase'
             self.expert_policy = DefenderGlobalPolicy(
                 env_width=self.env.width,
@@ -532,12 +532,8 @@ class Runner:
                 return self._programmatic_policy_key(strategy), str(strategy)
             return 'attacker_global', strategy
 
-        if skill_mode == 'protect1':
-            return 'attacker_static', None  # 阶段1: 静止对手
-        else:
-            # protect2, chase, 其他模式: 从默认训练策略集中随机选择
-            strategy = np.random.choice(TRAINING_STRATEGIES)
-            return 'attacker_global', strategy
+        strategy = np.random.choice(TRAINING_STRATEGIES)
+        return 'attacker_global', strategy
     
     def _reset(self, for_eval: bool = False, episode_idx: int = 0):
         """
@@ -730,7 +726,7 @@ class Runner:
         mb_actor_hiddens = [] if self._is_recurrent_policy else None
         mb_critic_hiddens = [] if self._is_recurrent_policy else None
         mb_chase_rewards = [] if self._has_multitask_aux else None
-        mb_baseline_rewards = [] if self._has_multitask_aux else None
+        mb_protect_rewards = [] if self._has_multitask_aux else None
         mb_collision_labels = [] if self._has_multitask_aux else None
 
         perf = {'per_r': [], 'per_episode_len': [], 'win': []}
@@ -815,7 +811,7 @@ class Runner:
             if self._has_multitask_aux:
                 skill_rewards = dict(info.get('skill_rewards', {}) or {})
                 mb_chase_rewards.append(float(skill_rewards.get('chase', 0.0)))
-                mb_baseline_rewards.append(float(skill_rewards.get('baseline', 0.0)))
+                mb_protect_rewards.append(float(skill_rewards.get('protect', 0.0)))
                 mb_collision_labels.append(1.0 if bool(info.get('defender_collision', False)) else 0.0)
 
             self.defender_obs, self.attacker_obs = obs
@@ -871,7 +867,7 @@ class Runner:
         mb_expert_actions = np.array(mb_expert_actions, dtype=np.float32)
         if self._has_multitask_aux:
             mb_chase_rewards = np.array(mb_chase_rewards, dtype=np.float32)
-            mb_baseline_rewards = np.array(mb_baseline_rewards, dtype=np.float32)
+            mb_protect_rewards = np.array(mb_protect_rewards, dtype=np.float32)
             mb_collision_labels = np.array(mb_collision_labels, dtype=np.float32)
         if self._is_recurrent_policy:
             mb_actor_hiddens = np.array(mb_actor_hiddens, dtype=np.float32)
@@ -926,17 +922,17 @@ class Runner:
                 mb_dones,
                 TrainingParameters.GAMMA,
             )
-            baseline_returns = self._discounted_component_returns(
-                mb_baseline_rewards,
+            protect_returns = self._discounted_component_returns(
+                mb_protect_rewards,
                 mb_dones,
                 TrainingParameters.GAMMA,
             )
             if aux_return_clip > 0.0:
                 chase_returns = np.clip(chase_returns, -aux_return_clip, aux_return_clip)
-                baseline_returns = np.clip(baseline_returns, -aux_return_clip, aux_return_clip)
+                protect_returns = np.clip(protect_returns, -aux_return_clip, aux_return_clip)
             ret['aux_targets'] = {
                 'chase_returns': chase_returns.astype(np.float32),
-                'baseline_returns': baseline_returns.astype(np.float32),
+                'protect_returns': protect_returns.astype(np.float32),
                 'collision_labels': mb_collision_labels,
             }
         if profile:

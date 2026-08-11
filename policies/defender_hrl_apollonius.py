@@ -3,7 +3,7 @@ Apollonius-style top-level HRL rule policy.
 
 At each step:
 - compute an obstacle-agnostic nominal defender direction from pursuit-evasion geometry
-- infer current baseline/chase primitive directions
+- infer current protect/chase primitive directions
 - select the skill whose direction is closer to the nominal direction
 """
 
@@ -233,7 +233,7 @@ class DefenderHRLApolloniusLabelPolicy:
             defender_obs = np.asarray(obs, dtype=np.float32)
             attacker_obs = np.asarray(attacker_obs, dtype=np.float32)
 
-        skill_names = list(getattr(env, 'skill_names', ['baseline', 'chase']))
+        skill_names = list(getattr(env, 'skill_names', ['protect', 'chase']))
         primary_idx, chase_idx = self._resolve_skill_indices(skill_names)
         primary_name = skill_names[primary_idx]
         chase_name = skill_names[chase_idx]

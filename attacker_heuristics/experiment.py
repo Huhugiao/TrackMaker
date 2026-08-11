@@ -45,36 +45,19 @@ class DefenderSpec:
 DEFENDER_SPECS: Dict[str, DefenderSpec] = {
     "rule_chase": DefenderSpec("rule_chase", "chase", "rule", "direct A* pursuit"),
     "rule_protect": DefenderSpec("rule_protect", "protect", "rule", "direct A* Target protection"),
-    "learned_baseline": DefenderSpec(
-        "learned_baseline", "hl_learned_baseline", "learned", "formal MLP CTDE baseline",
-        "models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth",
+    "learned_protect": DefenderSpec(
+        "learned_protect", "skill_protect", "learned", "formal Protect skill",
+        "models/defender_protect_mlp_ctde_frozen6_20260721_105148/best_balanced_model.pth",
     ),
     "learned_chase_skill": DefenderSpec(
         "learned_chase_skill", "skill_chase", "learned", "formal recurrent chase skill",
         "models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-    ),
-    "learned_protect_skill": DefenderSpec(
-        "learned_protect_skill", "skill_protect", "learned", "formal protect2 skill",
-        "models/defender_protect2_dense_02-11-17-34/best_model.pth",
     ),
     "learned_hrl": DefenderSpec(
         "learned_hrl", "hrl", "learned", "Chapter 2 learned A* path-risk top with frozen skills",
         "models/hrl_ch2_m1_astar_cached_top_20260606_170036/best_model.pth",
     ),
 }
-
-
-def _policy_spec_aliases(root: Path) -> Dict[str, Dict[str, str]]:
-    aliases = {}
-    for spec in DEFENDER_SPECS.values():
-        if not spec.env_strategy.startswith("hl_"):
-            continue
-        checkpoint = (root / str(spec.checkpoint)).resolve()
-        aliases[spec.env_strategy] = {
-            "strategy": "skill_baseline",
-            "checkpoint": str(checkpoint),
-        }
-    return aliases
 
 
 def _json_default(value):
@@ -259,7 +242,6 @@ class ExperimentRunner:
         spec = DEFENDER_SPECS[defender_name]
         return AttackerEnv(
             defender_strategy=spec.env_strategy,
-            defender_policy_specs=_policy_spec_aliases(self.root),
             env_kwargs={"hard_action_mask": False},
         )
 

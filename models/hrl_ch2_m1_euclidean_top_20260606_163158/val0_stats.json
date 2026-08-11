@@ -2,10 +2,10 @@
   "rows": 902,
   "labels": {
     "chase": 626,
-    "baseline": 276
+    "protect": 276
   },
   "rollout_counts": {
-    "baseline": 5119,
+    "protect": 5119,
     "chase": 4897
   },
   "outcomes": {
@@ -16,7 +16,7 @@
     "timeout_win": 9
   },
   "avg_utilities": {
-    "baseline": -8.803387882595697,
+    "protect": -8.803387882595697,
     "chase": -8.57829015814356
   },
   "episodes": 48

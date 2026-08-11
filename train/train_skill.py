@@ -62,8 +62,8 @@ from skill.util import (
 from utils.process_info import print_training_process_info
 
 
-BASELINE_ENV_CONFIG = {
-    'reward_mode': 'baseline',
+PROTECT_ENV_CONFIG = {
+    'reward_mode': 'protect',
     'episode_len': 300,
 }
 
@@ -472,7 +472,7 @@ def main():
     TrainingParameters.TRAINING_MODE = training_mode
 
     skill_mode = str(getattr(SetupParameters, 'SKILL_MODE', '')).strip().lower()
-    is_baseline_mode = skill_mode == 'baseline'
+    is_protect_mode = skill_mode == 'protect'
 
     model_network_type = _resolve_bottom_network_type()
     is_nmn_network = model_network_type in (
@@ -514,8 +514,8 @@ def main():
         'eval_use_random_seed': bool(SetupParameters.EVAL_USE_RANDOM_SEED),
         'eval_fixed_seed': int(SetupParameters.EVAL_FIXED_SEED),
     }
-    if is_baseline_mode:
-        runner_env_cfg.update(BASELINE_ENV_CONFIG)
+    if is_protect_mode:
+        runner_env_cfg.update(PROTECT_ENV_CONFIG)
     else:
         runner_env_cfg['reward_mode'] = skill_mode
     if getattr(SetupParameters, 'TRAIN_ATTACKER_STRATEGIES', None):
@@ -715,8 +715,8 @@ def main():
         )
         if nmn_cl_run_start_stage == 2 and model_dict is None:
             print("[NMN-CL] START_STAGE=2 without restored weights: stage2 will train from scratch.")
-    if is_baseline_mode:
-        print(f"Reward Mode: {BASELINE_ENV_CONFIG['reward_mode']} (old dense guidance)")
+    if is_protect_mode:
+        print(f"Reward Mode: {PROTECT_ENV_CONFIG['reward_mode']} (dense guidance)")
     if training_mode == 'mixed':
         print(f"IL Anneal: {TrainingParameters.IL_INITIAL_WEIGHT} -> {TrainingParameters.IL_FINAL_WEIGHT} over {TrainingParameters.IL_ANNEAL_STEPS:,} steps")
     print(f"Num Runners: {n_envs}")
@@ -861,9 +861,9 @@ def main():
             raise ValueError("attacker weight schedule must have positive sum in every stage")
         return [float(v) / total for v in current]
 
-    if is_baseline_mode and runner_env_cfg is not None:
+    if is_protect_mode and runner_env_cfg is not None:
         runner_env_cfg = dict(runner_env_cfg)
-        runner_env_cfg['reward_mode'] = BASELINE_ENV_CONFIG['reward_mode']
+        runner_env_cfg['reward_mode'] = PROTECT_ENV_CONFIG['reward_mode']
 
     current_runner_env_cfg = _apply_nmn_stage_to_env_cfg(runner_env_cfg, current_nmn_stage)
     current_scheduled_attacker_weights = _resolve_attacker_weight_schedule(global_step)
@@ -927,7 +927,7 @@ def main():
                     'target_progress_scale': 20.0,
                     'timeout': 'defender_win_no_terminal_bonus',
                 }
-                if skill_mode == 'baseline'
+                if skill_mode == 'protect'
                 else {
                     'step_penalty': -0.08,
                     'defender_capture': 20.0,

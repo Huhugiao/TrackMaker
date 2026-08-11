@@ -257,7 +257,7 @@ class Model(object):
         if coefs is None:
             coefs = {
                 'chase_value': float(getattr(TrainingParameters, 'MULTITASK_CHASE_VALUE_COEF', 0.05)),
-                'baseline_value': float(getattr(TrainingParameters, 'MULTITASK_BASELINE_VALUE_COEF', 0.05)),
+                'protect_value': float(getattr(TrainingParameters, 'MULTITASK_PROTECT_VALUE_COEF', 0.05)),
                 'collision': float(getattr(TrainingParameters, 'MULTITASK_COLLISION_COEF', 0.02)),
             }
         aux_loss, aux_parts = self.network.multitask_auxiliary_loss(
@@ -479,7 +479,7 @@ class Model(object):
     ) -> torch.Tensor:
         logits = apply_chase_logit_bias(
             logits,
-            skill_names=("baseline", "chase"),
+            skill_names=("protect", "chase"),
             chase_logit_bias=self._env_float("HRL_TOP_CHASE_LOGIT_BIAS", 0.0),
         )
         if logits.shape[-1] == 2:

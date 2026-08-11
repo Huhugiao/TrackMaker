@@ -202,7 +202,6 @@ class TADEnv(gym.Env):
         self.capture_required_steps = int(getattr(map_config, 'capture_required_steps', 1))
         self._capture_counter_defender = 0
         self._capture_counter_attacker = 0
-        self._collision_cooldown = 0  # 碰撞冷却计数器（protect1用）
 
         self.last_observed_attacker_pos = None
         self.steps_since_observed = 0
@@ -787,7 +786,6 @@ class TADEnv(gym.Env):
             'last_attacker_pos': copy.deepcopy(self.last_attacker_pos),
             'capture_counter_defender': int(self._capture_counter_defender),
             'capture_counter_attacker': int(self._capture_counter_attacker),
-            'collision_cooldown': int(self._collision_cooldown),
             'last_observed_attacker_pos': copy.deepcopy(self.last_observed_attacker_pos),
             'steps_since_observed': int(self.steps_since_observed),
             'best_distance_attacker': copy.deepcopy(self._best_distance_attacker),
@@ -816,7 +814,6 @@ class TADEnv(gym.Env):
         self.last_attacker_pos = copy.deepcopy(state['last_attacker_pos'])
         self._capture_counter_defender = int(state['capture_counter_defender'])
         self._capture_counter_attacker = int(state['capture_counter_attacker'])
-        self._collision_cooldown = int(state['collision_cooldown'])
         self.last_observed_attacker_pos = copy.deepcopy(state['last_observed_attacker_pos'])
         self.steps_since_observed = int(state['steps_since_observed'])
         self._best_distance_attacker = copy.deepcopy(state['best_distance_attacker'])
@@ -861,26 +858,12 @@ class TADEnv(gym.Env):
             prev_radar=prev_defender_radar,
             initial_dist_def_att=self.initial_dist_def_att,
         )[0])
-        protect_reward = float(reward_fn.reward_calculate_protect2(
+        rewards['protect'] = float(reward_fn.reward_calculate_protect(
             **common,
             radar=defender_radar,
-            prev_radar=prev_defender_radar,
             initial_dist_def_tgt=self.initial_dist_def_tgt,
+            initial_dist_def_att=self.initial_dist_def_att,
         )[0])
-        rewards['protect'] = protect_reward
-
-        if _read_env_bool('TAD_COMPLEMENTARY_SKILL_REWARDS', False):
-            # In 2-skill HRL experiments, "baseline" is the conservative/safe
-            # skill. This mode removes the capture-oriented baseline objective
-            # so baseline and chase are optimized for genuinely different roles.
-            rewards['baseline'] = protect_reward
-        else:
-            rewards['baseline'] = float(reward_fn.reward_calculate_baseline(
-                **common,
-                radar=defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt,
-                initial_dist_def_att=self.initial_dist_def_att,
-            )[0])
         return rewards
 
     def _get_obs_features(self):
@@ -1600,44 +1583,7 @@ class TADEnv(gym.Env):
         defender_radar = self._sense_agent_radar(self.defender, num_rays=self.radar_rays, full_circle=True)
 
         # Calculate reward based on reward_mode
-        if self.reward_mode == 'protect1':
-            reward, terminated, truncated, info = reward_fn.reward_calculate_protect1(
-                self.defender, self.attacker, self.target,
-                prev_defender=self.prev_defender_pos,
-                prev_attacker=self.prev_attacker_pos,
-                defender_collision=bool(defender_blocked),
-                attacker_collision=bool(attacker_blocked),
-                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
-                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
-                capture_progress_defender=int(self._capture_counter_defender),
-                capture_progress_attacker=int(self._capture_counter_attacker),
-                capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt,
-                collision_cooldown=self._collision_cooldown
-            )
-            # 更新碰撞冷却计数器
-            if defender_blocked and self._collision_cooldown == 0:
-                self._collision_cooldown = 10  # 碰撞后进入10步冷却
-            elif self._collision_cooldown > 0:
-                self._collision_cooldown -= 1
-        elif self.reward_mode == 'protect2':
-            reward, terminated, truncated, info = reward_fn.reward_calculate_protect2(
-                self.defender, self.attacker, self.target,
-                prev_defender=self.prev_defender_pos,
-                prev_attacker=self.prev_attacker_pos,
-                defender_collision=bool(defender_blocked),
-                attacker_collision=bool(attacker_blocked),
-                defender_captured=bool(self._capture_counter_defender >= self.capture_required_steps),
-                attacker_captured=bool(self._capture_counter_attacker >= self.capture_required_steps),
-                capture_progress_defender=int(self._capture_counter_defender),
-                capture_progress_attacker=int(self._capture_counter_attacker),
-                capture_required_steps=int(self.capture_required_steps),
-                radar=defender_radar,
-                prev_radar=prev_defender_radar,
-                initial_dist_def_tgt=self.initial_dist_def_tgt
-            )
-        elif self.reward_mode == 'chase':
+        if self.reward_mode == 'chase':
             reward, terminated, truncated, info = reward_fn.reward_calculate_chase(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
@@ -1669,8 +1615,8 @@ class TADEnv(gym.Env):
                 radar=defender_radar,
                 initial_dist_def_tgt=self.initial_dist_def_tgt,
             )
-        elif self.reward_mode == 'baseline':
-            reward, terminated, truncated, info = reward_fn.reward_calculate_baseline(
+        elif self.reward_mode == 'protect':
+            reward, terminated, truncated, info = reward_fn.reward_calculate_protect(
                 self.defender, self.attacker, self.target,
                 prev_defender=self.prev_defender_pos,
                 prev_attacker=self.prev_attacker_pos,
@@ -1725,9 +1671,7 @@ class TADEnv(gym.Env):
         self.current_obs = self._get_obs_features()
         if self.step_count >= EnvParameters.EPISODE_LEN and not terminated:
             truncated = True
-            # protect2 与 standard 超时按 defender 胜利并给予 +success_reward
-            if self.reward_mode == 'protect2':
-                reward += float(getattr(map_config, 'success_reward', 20.0))
+            # standard 超时按 defender 胜利并给予 +success_reward
             if self.reward_mode == 'standard':
                 reward += float(getattr(map_config, 'success_reward', 20.0))
             if self.reward_mode == 'chase':
@@ -1858,7 +1802,6 @@ class TADEnv(gym.Env):
         self.steps_since_observed = 0
         self._capture_counter_defender = 0
         self._capture_counter_attacker = 0
-        self._collision_cooldown = 0  # 碰撞冷却计数器（protect1用）
         self._best_distance_target = float(math.hypot(self.attacker['x'] - self.target['x'], self.attacker['y'] - self.target['y']))
 
         self._fov_cache = None

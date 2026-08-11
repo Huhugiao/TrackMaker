@@ -40,11 +40,10 @@ class SetupParameters:
     # 障碍物密度等级 (none, dense)
     OBSTACLE_DENSITY = ObstacleDensity.DENSE
     
-    # 技能模式: "chase", "protect1", "protect2", "baseline"
-    # protect1: 导航到target阶段 (静止对手, 到达即成功)
-    # protect2: 保护target阶段 (导航对手, 任务胜负条件)
-    # baseline: 端到端PPO基线（老版密集引导奖励）
-    SKILL_MODE = "baseline"
+    # 技能模式: "protect", "chase"
+    # protect: 端到端保护技能（密集引导奖励）
+    # chase: 追击技能
+    SKILL_MODE = "protect"
 
     # 底层网络类型：
     # - "nmn"
@@ -135,7 +134,7 @@ class TrainingParameters:
     MAX_GRAD_NORM = 0.3      # 梯度裁剪阈值
     AUX_DISTILL_COEF = 0.2   # belief / privileged latent distillation 辅助损失权重
     MULTITASK_CHASE_VALUE_COEF = 0.05
-    MULTITASK_BASELINE_VALUE_COEF = 0.05
+    MULTITASK_PROTECT_VALUE_COEF = 0.05
     MULTITASK_COLLISION_COEF = 0.02
     MULTITASK_AUX_RETURN_CLIP = 20.0
     GAMMA = 0.95            # 折扣因子

@@ -11,10 +11,10 @@
       "rows": 1517,
       "labels": {
         "chase": 888,
-        "baseline": 629
+        "protect": 629
       },
       "rollout_counts": {
-        "baseline": 9454,
+        "protect": 9454,
         "chase": 7850
       },
       "outcomes": {
@@ -25,7 +25,7 @@
         "timeout_win": 19
       },
       "avg_utilities": {
-        "baseline": -10.615111452713167,
+        "protect": -10.615111452713167,
         "chase": -10.186822210943568
       },
       "episodes": 80
@@ -82,10 +82,10 @@
       "rows": 1393,
       "labels": {
         "chase": 960,
-        "baseline": 433
+        "protect": 433
       },
       "rollout_counts": {
-        "baseline": 5354,
+        "protect": 5354,
         "chase": 8182
       },
       "outcomes": {
@@ -96,7 +96,7 @@
         "timeout_win": 5
       },
       "avg_utilities": {
-        "baseline": -10.402861823088017,
+        "protect": -10.402861823088017,
         "chase": -9.538986523950522
       },
       "episodes": 80
@@ -153,11 +153,11 @@
       "rows": 1461,
       "labels": {
         "chase": 1090,
-        "baseline": 371
+        "protect": 371
       },
       "rollout_counts": {
         "chase": 8159,
-        "baseline": 7593
+        "protect": 7593
       },
       "outcomes": {
         "win": 62,
@@ -167,7 +167,7 @@
         "timeout_win": 15
       },
       "avg_utilities": {
-        "baseline": -8.772053356795128,
+        "protect": -8.772053356795128,
         "chase": -7.9399297181796085
       },
       "episodes": 80
@@ -223,11 +223,11 @@
     "train_stats": {
       "rows": 1446,
       "labels": {
-        "baseline": 384,
+        "protect": 384,
         "chase": 1062
       },
       "rollout_counts": {
-        "baseline": 8554,
+        "protect": 8554,
         "chase": 8246
       },
       "outcomes": {
@@ -238,7 +238,7 @@
         "timeout_win": 19
       },
       "avg_utilities": {
-        "baseline": -10.067045674811519,
+        "protect": -10.067045674811519,
         "chase": -9.264047623594369
       },
       "episodes": 80
@@ -294,11 +294,11 @@
     "train_stats": {
       "rows": 1413,
       "labels": {
-        "baseline": 399,
+        "protect": 399,
         "chase": 1014
       },
       "rollout_counts": {
-        "baseline": 7577,
+        "protect": 7577,
         "chase": 7602
       },
       "outcomes": {
@@ -309,7 +309,7 @@
         "timeout_win": 14
       },
       "avg_utilities": {
-        "baseline": -9.301675338676265,
+        "protect": -9.301675338676265,
         "chase": -8.383008050798129
       },
       "episodes": 80
@@ -365,12 +365,12 @@
     "train_stats": {
       "rows": 1385,
       "labels": {
-        "baseline": 398,
+        "protect": 398,
         "chase": 987
       },
       "rollout_counts": {
         "chase": 7265,
-        "baseline": 6205
+        "protect": 6205
       },
       "outcomes": {
         "win": 60,
@@ -380,7 +380,7 @@
         "timeout_win": 8
       },
       "avg_utilities": {
-        "baseline": -9.13085656438601,
+        "protect": -9.13085656438601,
         "chase": -8.293896029345754
       },
       "episodes": 80
@@ -437,10 +437,10 @@
       "rows": 1420,
       "labels": {
         "chase": 1022,
-        "baseline": 398
+        "protect": 398
       },
       "rollout_counts": {
-        "baseline": 6634,
+        "protect": 6634,
         "chase": 7882
       },
       "outcomes": {
@@ -451,7 +451,7 @@
         "timeout_win": 11
       },
       "avg_utilities": {
-        "baseline": -9.134318939139748,
+        "protect": -9.134318939139748,
         "chase": -8.29413876888789
       },
       "episodes": 80
@@ -507,11 +507,11 @@
     "train_stats": {
       "rows": 1496,
       "labels": {
-        "baseline": 395,
+        "protect": 395,
         "chase": 1101
       },
       "rollout_counts": {
-        "baseline": 7144,
+        "protect": 7144,
         "chase": 7970
       },
       "outcomes": {
@@ -522,7 +522,7 @@
         "timeout_win": 10
       },
       "avg_utilities": {
-        "baseline": -9.252845001595944,
+        "protect": -9.252845001595944,
         "chase": -8.360977969644198
       },
       "episodes": 80
@@ -578,12 +578,12 @@
     "train_stats": {
       "rows": 1398,
       "labels": {
-        "baseline": 360,
+        "protect": 360,
         "chase": 1038
       },
       "rollout_counts": {
         "chase": 7607,
-        "baseline": 7354
+        "protect": 7354
       },
       "outcomes": {
         "win": 52,
@@ -593,7 +593,7 @@
         "timeout_win": 13
       },
       "avg_utilities": {
-        "baseline": -9.767091229484338,
+        "protect": -9.767091229484338,
         "chase": -9.077949803400312
       },
       "episodes": 80
@@ -650,10 +650,10 @@
       "rows": 1434,
       "labels": {
         "chase": 974,
-        "baseline": 460
+        "protect": 460
       },
       "rollout_counts": {
-        "baseline": 7132,
+        "protect": 7132,
         "chase": 7523
       },
       "outcomes": {
@@ -664,7 +664,7 @@
         "timeout_win": 12
       },
       "avg_utilities": {
-        "baseline": -8.734953293381796,
+        "protect": -8.734953293381796,
         "chase": -8.015682356125836
       },
       "episodes": 80
@@ -721,10 +721,10 @@
       "rows": 1486,
       "labels": {
         "chase": 1087,
-        "baseline": 399
+        "protect": 399
       },
       "rollout_counts": {
-        "baseline": 7953,
+        "protect": 7953,
         "chase": 9280
       },
       "outcomes": {
@@ -735,7 +735,7 @@
         "timeout_win": 18
       },
       "avg_utilities": {
-        "baseline": -9.03852346777306,
+        "protect": -9.03852346777306,
         "chase": -8.327475430266245
       },
       "episodes": 80
@@ -791,12 +791,12 @@
     "train_stats": {
       "rows": 1492,
       "labels": {
-        "baseline": 381,
+        "protect": 381,
         "chase": 1111
       },
       "rollout_counts": {
         "chase": 8350,
-        "baseline": 7895
+        "protect": 7895
       },
       "outcomes": {
         "win": 58,
@@ -806,7 +806,7 @@
         "timeout_win": 14
       },
       "avg_utilities": {
-        "baseline": -9.688063649203091,
+        "protect": -9.688063649203091,
         "chase": -8.861386230978537
       },
       "episodes": 80
@@ -862,11 +862,11 @@
     "train_stats": {
       "rows": 1461,
       "labels": {
-        "baseline": 425,
+        "protect": 425,
         "chase": 1036
       },
       "rollout_counts": {
-        "baseline": 7765,
+        "protect": 7765,
         "chase": 7927
       },
       "outcomes": {
@@ -877,7 +877,7 @@
         "timeout_win": 11
       },
       "avg_utilities": {
-        "baseline": -8.984765370037064,
+        "protect": -8.984765370037064,
         "chase": -8.228993058785425
       },
       "episodes": 80
@@ -933,11 +933,11 @@
     "train_stats": {
       "rows": 1519,
       "labels": {
-        "baseline": 439,
+        "protect": 439,
         "chase": 1080
       },
       "rollout_counts": {
-        "baseline": 7818,
+        "protect": 7818,
         "chase": 9195
       },
       "outcomes": {
@@ -948,7 +948,7 @@
         "timeout_win": 12
       },
       "avg_utilities": {
-        "baseline": -9.354562579899499,
+        "protect": -9.354562579899499,
         "chase": -8.584815708496436
       },
       "episodes": 80
@@ -1004,12 +1004,12 @@
     "train_stats": {
       "rows": 1402,
       "labels": {
-        "baseline": 375,
+        "protect": 375,
         "chase": 1027
       },
       "rollout_counts": {
         "chase": 7032,
-        "baseline": 6668
+        "protect": 6668
       },
       "outcomes": {
         "win": 64,
@@ -1019,7 +1019,7 @@
         "timeout_win": 7
       },
       "avg_utilities": {
-        "baseline": -8.860378533393868,
+        "protect": -8.860378533393868,
         "chase": -7.868475097384488
       },
       "episodes": 80
@@ -1076,11 +1076,11 @@
       "rows": 1524,
       "labels": {
         "chase": 1004,
-        "baseline": 520
+        "protect": 520
       },
       "rollout_counts": {
         "chase": 7897,
-        "baseline": 9520
+        "protect": 9520
       },
       "outcomes": {
         "win": 59,
@@ -1090,7 +1090,7 @@
         "timeout_win": 16
       },
       "avg_utilities": {
-        "baseline": -9.228198646949824,
+        "protect": -9.228198646949824,
         "chase": -8.606320955739827
       },
       "episodes": 80
@@ -1146,11 +1146,11 @@
     "train_stats": {
       "rows": 1476,
       "labels": {
-        "baseline": 477,
+        "protect": 477,
         "chase": 999
       },
       "rollout_counts": {
-        "baseline": 7604,
+        "protect": 7604,
         "chase": 8668
       },
       "outcomes": {
@@ -1161,7 +1161,7 @@
         "timeout_win": 8
       },
       "avg_utilities": {
-        "baseline": -9.858286353403214,
+        "protect": -9.858286353403214,
         "chase": -9.220529045188647
       },
       "episodes": 80
@@ -1218,10 +1218,10 @@
       "rows": 1483,
       "labels": {
         "chase": 1126,
-        "baseline": 357
+        "protect": 357
       },
       "rollout_counts": {
-        "baseline": 7186,
+        "protect": 7186,
         "chase": 8269
       },
       "outcomes": {
@@ -1232,7 +1232,7 @@
         "timeout_win": 8
       },
       "avg_utilities": {
-        "baseline": -9.024198229683394,
+        "protect": -9.024198229683394,
         "chase": -8.16491982022128
       },
       "episodes": 80

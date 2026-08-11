@@ -1,8 +1,8 @@
 {
-  "run_name": "baseline_rl_07-21-10-51",
+  "run_name": "protect_rl_07-21-10-51",
   "role": "defender",
   "policy_name": "protect",
-  "skill_mode": "baseline",
+  "skill_mode": "protect",
   "training_mode": "rl",
   "defender_reward_style": null,
   "defender_reward_styles": [],
@@ -60,7 +60,7 @@
     }
   },
   "environment": {
-    "reward_mode": "baseline",
+    "reward_mode": "protect",
     "episode_len": 300,
     "attacker_speed": 2.0,
     "defender_speed": 2.6,

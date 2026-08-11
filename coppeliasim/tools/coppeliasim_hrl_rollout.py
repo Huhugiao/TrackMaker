@@ -27,7 +27,7 @@ from coppelia_env.skill_adapter import (  # noqa: E402
 )
 from configs.skill_config import NetParameters  # noqa: E402
 from coppeliasim.tools.coppeliasim_skill_rollout import (  # noqa: E402
-    DEFAULT_BASELINE_CHECKPOINT,
+    DEFAULT_PROTECT_CHECKPOINT,
     DEFAULT_CHASE_CHECKPOINT,
     DEFAULT_MANIFEST,
     resolve_device,
@@ -37,12 +37,12 @@ from coppeliasim.tools.coppeliasim_skill_rollout import (  # noqa: E402
 DEFAULT_TOP_CHECKPOINT = PROJECT_ROOT / "models/hrl_ch2_m1_astar_cached_top_20260606_170036/best_model.pth"
 DEFAULT_OUTPUT = PROJECT_ROOT / "outputs/coppeliasim/hrl_rollout.json"
 DEFAULT_TOP_NETWORK_TYPE = "hrl_top_dual_gru_raw"
-SKILL_NAMES = ("baseline", "chase")
+SKILL_NAMES = ("protect", "chase")
 
 
-def hrl_skill_paths(baseline_checkpoint: Path | None, chase_checkpoint: Path | None) -> dict[str, Path]:
+def hrl_skill_paths(protect_checkpoint: Path | None, chase_checkpoint: Path | None) -> dict[str, Path]:
     return {
-        "baseline": Path(baseline_checkpoint) if baseline_checkpoint is not None else DEFAULT_BASELINE_CHECKPOINT,
+        "protect": Path(protect_checkpoint) if protect_checkpoint is not None else DEFAULT_PROTECT_CHECKPOINT,
         "chase": Path(chase_checkpoint) if chase_checkpoint is not None else DEFAULT_CHASE_CHECKPOINT,
     }
 
@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--top-checkpoint", type=Path, default=DEFAULT_TOP_CHECKPOINT)
     parser.add_argument("--top-network-type", default=DEFAULT_TOP_NETWORK_TYPE)
-    parser.add_argument("--baseline-checkpoint", type=Path, default=None)
+    parser.add_argument("--protect-checkpoint", type=Path, default=None)
     parser.add_argument("--chase-checkpoint", type=Path, default=None)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=23000)
@@ -256,9 +256,9 @@ def main() -> int:
         device=device,
     )
     top_model.network.eval()
-    paths = hrl_skill_paths(args.baseline_checkpoint, args.chase_checkpoint)
+    paths = hrl_skill_paths(args.protect_checkpoint, args.chase_checkpoint)
     bottom_models = {
-        "baseline": load_skill_model(paths["baseline"], "mlp_ctde", device=device, global_model=False),
+        "protect": load_skill_model(paths["protect"], "mlp_ctde", device=device, global_model=False),
         "chase": load_skill_model(paths["chase"], "nmn_dual_gru_raw", device=device, global_model=False),
     }
     for model in bottom_models.values():
@@ -297,7 +297,7 @@ def main() -> int:
         "top_checkpoint": str(args.top_checkpoint.resolve()),
         "top_network_type": str(args.top_network_type),
         "skill_names": list(SKILL_NAMES),
-        "baseline_checkpoint": str(paths["baseline"]),
+        "protect_checkpoint": str(paths["protect"]),
         "chase_checkpoint": str(paths["chase"]),
         "deterministic": bool(args.deterministic),
         "allow_reverse": bool(args.allow_reverse),

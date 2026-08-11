@@ -15,7 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = Path(sys.executable)
 
 
-DEFAULT_BASELINE = "models/defender_baseline_mlp_ctde_repro_20260526/final_model.pth"
+DEFAULT_PROTECT = "models/defender_protect_mlp_ctde_frozen6_20260721_105148/best_balanced_model.pth"
+DEFAULT_HRL_PROTECT = "models/defender_protect_mlp_ctde_repro_20260526/final_model.pth"
 DEFAULT_CHASE = "models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth"
 
 
@@ -62,7 +63,7 @@ def _run_one(
     checkpoint: str,
     episodes: int,
     stats_path: Path,
-    hrl_baseline_path: str,
+    hrl_protect_path: str,
     hrl_chase_path: str,
     hrl_network_type: str,
     hrl_chase_logit_bias: float = 0.0,
@@ -103,8 +104,8 @@ def _run_one(
             [
                 "--hrl-num-skills",
                 "2",
-                "--hrl-baseline-skill-path",
-                hrl_baseline_path,
+                "--hrl-protect-skill-path",
+                hrl_protect_path,
                 "--hrl-chase-skill-path",
                 hrl_chase_path,
                 "--network-type",
@@ -148,7 +149,7 @@ def _summarize(raw: Dict) -> Dict[str, float]:
         "collision": _rate(stats.get("defender_collisions", [])),
         "mean_len": _mean(stats.get("episode_lengths", [])),
         "chase_rate": 100.0 * _mean(stats.get("episode_hrl_skill_chase_selection_rate", [])),
-        "baseline_rate": 100.0 * _mean(stats.get("episode_hrl_skill_baseline_selection_rate", [])),
+        "protect_rate": 100.0 * _mean(stats.get("episode_hrl_skill_protect_selection_rate", [])),
     }
 
 
@@ -178,13 +179,14 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True, help="HRL top checkpoint.")
     parser.add_argument("--episodes", type=int, default=32)
     parser.add_argument("--attackers", default="default,evasive")
-    parser.add_argument("--defenders", default="hrl,baseline,chase")
+    parser.add_argument("--defenders", default="hrl,protect,chase")
     parser.add_argument(
         "--regimes",
         default="advantage:advantage,neutral:neutral,disadvantage:disadvantage,advantage:disadvantage,disadvantage:advantage",
         help="Comma-separated speed:margin pairs, or all.",
     )
-    parser.add_argument("--baseline-path", default=DEFAULT_BASELINE)
+    parser.add_argument("--protect-path", default=DEFAULT_PROTECT)
+    parser.add_argument("--hrl-protect-path", default=DEFAULT_HRL_PROTECT)
     parser.add_argument("--chase-path", default=DEFAULT_CHASE)
     parser.add_argument("--hrl-network-type", default="hrl_top_dual_gru_raw")
     parser.add_argument(
@@ -247,8 +249,8 @@ def main() -> None:
         for attacker in attackers:
             for defender in defenders:
                 checkpoint = args.checkpoint
-                if defender == "baseline":
-                    checkpoint = args.baseline_path
+                if defender == "protect":
+                    checkpoint = args.protect_path
                 elif defender == "chase":
                     checkpoint = args.chase_path
 
@@ -269,7 +271,7 @@ def main() -> None:
                     checkpoint=checkpoint,
                     episodes=args.episodes,
                     stats_path=stats_path,
-                    hrl_baseline_path=args.baseline_path,
+                    hrl_protect_path=args.hrl_protect_path,
                     hrl_chase_path=args.chase_path,
                     hrl_network_type=args.chase_network_type if defender == "chase" else args.hrl_network_type,
                     hrl_chase_logit_bias=float(args.hrl_chase_logit_bias) if defender == "hrl" else 0.0,

@@ -35,7 +35,6 @@ RULE_DEFENDER_STRATEGIES = (
 LEARNED_SKILL_DEFENDER_STRATEGIES = (
     "skill_primary",
     "skill_chase",
-    "skill_baseline",
     "skill_protect",
 )
 LEARNED_HIERARCHICAL_DEFENDER_STRATEGIES = (
@@ -55,15 +54,17 @@ SUPPORTED_DEFENDER_STRATEGIES = (
 DEFENDER_POLICY_CHECKPOINT_PARAMS = {
     "skill_primary": "primary_skill_path",
     "skill_chase": "chase_skill_path",
-    "skill_baseline": "baseline_skill_path",
     "skill_protect": "protect_skill_path",
     "hrl": "top_policy_path",
 }
 
 FORMAL_SKILL_MODEL_DIRS = {
-    "baseline": os.path.join("models", "defender_baseline_mlp_ctde_repro_20260526"),
+    "protect": os.path.join("models", "defender_protect_mlp_ctde_frozen6_20260721_105148"),
     "chase": os.path.join("models", "defender_chase_nmn_dual_gru_raw_dense_05-05-19-12"),
 }
+HRL_PROTECT_MODEL_PATH = os.path.join(
+    "models", "defender_protect_mlp_ctde_repro_20260526", "final_model.pth"
+)
 
 
 def env_json_object(name: str, default: Optional[Mapping] = None) -> Dict:
@@ -214,7 +215,7 @@ def _find_formal_skill_checkpoint(strategy: str) -> Optional[str]:
     model_dir = FORMAL_SKILL_MODEL_DIRS.get(strategy)
     if model_dir is None:
         return None
-    for filename in ("final_model.pth", "best_model.pth"):
+    for filename in ("best_balanced_model.pth", "final_model.pth", "best_model.pth"):
         path = os.path.join(model_dir, filename)
         if os.path.isfile(path):
             return path
@@ -245,10 +246,8 @@ def _default_model_path(strategy: str) -> Optional[str]:
         return formal_path
 
     prefix_map = {
-        "protect": ["defender_protect2_dense", "defender_protect1_dense", "defender_protect_dense"],
-        "protect2": ["defender_protect2_dense", "defender_protect1_dense", "defender_protect_dense"],
+        "protect": ["defender_protect_mlp_ctde_frozen6", "defender_protect_dense"],
         "chase": ["defender_chase_nmn_dual_gru_raw_dense"],
-        "baseline": ["defender_baseline_mlp_ctde_repro"],
     }
     prefixes = prefix_map.get(key)
     if not prefixes:
@@ -264,34 +263,21 @@ def _resolve_hrl_skill_paths(
     num_skills: int = 2,
     primary_path: Optional[str] = None,
     chase_path: Optional[str] = None,
-    baseline_path: Optional[str] = None,
-) -> Tuple[str, str, Optional[str], str]:
+) -> Tuple[str, str]:
     num_skills = int(num_skills)
-    if num_skills not in (2, 3):
-        raise ValueError(f"hrl_num_skills must be 2 or 3, got {num_skills!r}")
+    if num_skills != 2:
+        raise ValueError(f"hrl_num_skills must be 2, got {num_skills!r}")
 
     primary_path = None if primary_path is None else str(primary_path).strip() or None
     chase_path = None if chase_path is None else str(chase_path).strip() or None
-    baseline_path = None if baseline_path is None else str(baseline_path).strip() or None
-
-    if num_skills == 2:
-        primary_skill_name = "baseline"
-        primary_path = primary_path or baseline_path or _default_model_path("baseline")
-        chase_path = chase_path or _default_model_path("chase")
-        baseline_path = None
-    else:
-        primary_skill_name = "protect"
-        primary_path = primary_path or _default_model_path("protect2")
-        chase_path = chase_path or _default_model_path("chase")
-        baseline_path = baseline_path or _default_model_path("baseline")
+    primary_path = primary_path or HRL_PROTECT_MODEL_PATH
+    chase_path = chase_path or _default_model_path("chase")
 
     if not primary_path or not os.path.exists(primary_path):
         raise FileNotFoundError(f"Missing primary HRL skill checkpoint: {primary_path}")
     if not chase_path or not os.path.exists(chase_path):
         raise FileNotFoundError(f"Missing chase HRL skill checkpoint: {chase_path}")
-    if num_skills == 3 and (not baseline_path or not os.path.exists(baseline_path)):
-        raise FileNotFoundError(f"Missing baseline HRL skill checkpoint: {baseline_path}")
-    return primary_path, chase_path, baseline_path, primary_skill_name
+    return primary_path, chase_path
 
 
 def _compat_numpy_checkpoint_load(path: str, device):
@@ -446,28 +432,20 @@ def _resolve_single_skill_entry(strategy: str, controller_config: Optional[Dict]
     cfg = dict(controller_config or {})
     key = str(strategy).strip().lower()
     if key == "skill_protect":
-        protect_path = str(cfg.get("protect_skill_path") or "").strip() or _default_model_path("protect2")
+        protect_path = str(cfg.get("protect_skill_path") or "").strip() or _default_model_path("protect")
         if not protect_path or not os.path.exists(protect_path):
             raise FileNotFoundError(f"Missing protect skill checkpoint: {protect_path}")
         return protect_path, "protect"
 
-    primary_path, chase_path, baseline_path, primary_skill_name = _resolve_hrl_skill_paths(
+    primary_path, chase_path = _resolve_hrl_skill_paths(
         num_skills=int(cfg.get("hrl_num_skills", 2)),
         primary_path=cfg.get("primary_skill_path"),
         chase_path=cfg.get("chase_skill_path"),
-        baseline_path=cfg.get("baseline_skill_path"),
     )
     if key == "skill_primary":
-        return primary_path, primary_skill_name
+        return primary_path, "protect"
     if key == "skill_chase":
         return chase_path, "chase"
-    if key == "skill_baseline":
-        if primary_skill_name == "baseline":
-            return primary_path, "baseline"
-        fallback = baseline_path or _default_model_path("baseline")
-        if not fallback or not os.path.exists(fallback):
-            raise FileNotFoundError(f"Missing baseline skill checkpoint: {fallback}")
-        return fallback, "baseline"
     raise ValueError(f"Unsupported learned skill defender strategy: {strategy}")
 
 
@@ -619,7 +597,6 @@ class HierarchicalRuleDefenderController(BaseDefenderController):
         num_skills: int = 2,
         primary_skill_path: Optional[str] = None,
         chase_skill_path: Optional[str] = None,
-        baseline_skill_path: Optional[str] = None,
         device: str = "cpu",
     ):
         super().__init__(strategy=strategy)
@@ -627,25 +604,18 @@ class HierarchicalRuleDefenderController(BaseDefenderController):
         self.device = _resolve_runtime_device(device)
         self.cached_skill_obs = None
 
-        primary_path, chase_path, baseline_path, primary_skill_name = _resolve_hrl_skill_paths(
+        primary_path, chase_path = _resolve_hrl_skill_paths(
             num_skills=num_skills,
             primary_path=primary_skill_path,
             chase_path=chase_skill_path,
-            baseline_path=baseline_skill_path,
         )
 
-        self.primary_skill_name = primary_skill_name
+        self.primary_skill_name = "protect"
         self.primary_net = _load_skill_model(primary_path, self.device, skill_name=self.primary_skill_name)
         self.chase_net = _load_skill_model(chase_path, self.device, skill_name="chase")
-        self.baseline_net = None
-        if baseline_path is not None:
-            self.baseline_net = _load_skill_model(baseline_path, self.device, skill_name="baseline")
 
         self.skill_names = [self.primary_skill_name, "chase"]
         self.skill_nets = [self.primary_net, self.chase_net]
-        if self.baseline_net is not None:
-            self.skill_names.append("baseline")
-            self.skill_nets.append(self.baseline_net)
 
         self._skill_actor_hidden = {name: None for name in self.skill_names}
         self._skill_critic_hidden = {name: None for name in self.skill_names}
@@ -723,24 +693,19 @@ class LearnedHRLDefenderController(BaseDefenderController):
         top_policy_path: Optional[str] = None,
         primary_skill_path: Optional[str] = None,
         chase_skill_path: Optional[str] = None,
-        baseline_skill_path: Optional[str] = None,
         device: str = "cpu",
     ):
         super().__init__(strategy=strategy)
         self.env = env
         self.device = _resolve_runtime_device(device)
 
-        primary_path, chase_path, baseline_path, primary_skill_name = _resolve_hrl_skill_paths(
+        primary_path, chase_path = _resolve_hrl_skill_paths(
             num_skills=num_skills,
             primary_path=primary_skill_path,
             chase_path=chase_skill_path,
-            baseline_path=baseline_skill_path,
         )
-        self.skill_names = [primary_skill_name, "chase"]
+        self.skill_names = ["protect", "chase"]
         skill_paths = [primary_path, chase_path]
-        if baseline_path is not None:
-            self.skill_names.append("baseline")
-            skill_paths.append(baseline_path)
 
         self.skill_models = {}
         for name, path in zip(self.skill_names, skill_paths):
@@ -814,7 +779,6 @@ def create_defender_controller(
             top_policy_path=cfg.get("top_policy_path"),
             primary_skill_path=cfg.get("primary_skill_path"),
             chase_skill_path=cfg.get("chase_skill_path"),
-            baseline_skill_path=cfg.get("baseline_skill_path"),
             device=str(cfg.get("device", "cpu")),
         )
     if key in HIERARCHICAL_DEFENDER_STRATEGIES:
@@ -824,7 +788,6 @@ def create_defender_controller(
             num_skills=int(cfg.get("hrl_num_skills", 2)),
             primary_skill_path=cfg.get("primary_skill_path"),
             chase_skill_path=cfg.get("chase_skill_path"),
-            baseline_skill_path=cfg.get("baseline_skill_path"),
             device=str(cfg.get("device", "cpu")),
         )
     raise ValueError(f"Unsupported defender strategy: {strategy}. Valid={SUPPORTED_DEFENDER_STRATEGIES}")

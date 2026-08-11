@@ -38,7 +38,6 @@ class HRLEnv(gym.Env):
         self,
         protect_model_path,
         chase_model_path=None,
-        baseline_model_path=None,
         primary_skill_name: str = 'protect',
         attacker_strategy='random',
         attacker_strategy_pool=None,
@@ -97,10 +96,8 @@ class HRLEnv(gym.Env):
         )
 
         primary_skill_name = str(primary_skill_name).strip().lower()
-        if primary_skill_name not in ('protect', 'baseline'):
-            raise ValueError(
-                f'primary_skill_name must be "protect" or "baseline", got {primary_skill_name!r}'
-            )
+        if primary_skill_name != 'protect':
+            raise ValueError(f'primary_skill_name must be "protect", got {primary_skill_name!r}')
         self.primary_skill_name = primary_skill_name
         self.primary_net = self._load_skill_model(protect_model_path, skill_name=self.primary_skill_name)
         # Backward-compatible attribute name.
@@ -111,19 +108,8 @@ class HRLEnv(gym.Env):
         if not os.path.exists(chase_model_path):
             raise FileNotFoundError(f'chase model not found: {chase_model_path}')
         self.chase_net = self._load_skill_model(chase_model_path, skill_name='chase')
-        self.baseline_net = None
-        if baseline_model_path is not None:
-            if self.primary_skill_name == 'baseline':
-                raise ValueError('primary_skill_name=baseline 时不能再额外提供 baseline_model_path（会重复技能）。')
-            if not os.path.exists(baseline_model_path):
-                raise FileNotFoundError(f'baseline model not found: {baseline_model_path}')
-            self.baseline_net = self._load_skill_model(baseline_model_path, skill_name='baseline')
-
         self.skill_names = [self.primary_skill_name, 'chase']
         self.skill_nets = [self.primary_net, self.chase_net]
-        if self.baseline_net is not None:
-            self.skill_names.append('baseline')
-            self.skill_nets.append(self.baseline_net)
         self.num_skills = int(len(self.skill_names))
         self.num_macro_actions = int(self.num_skills * self.num_duration_bins)
         self._reset_skill_states()
@@ -224,7 +210,7 @@ class HRLEnv(gym.Env):
         skill = str(selected_skill).strip().lower()
         if skill == 'chase' and risk_gate > 0.5 and margin_gain < 0.0:
             reward -= self._env_float('HRL_ONLINE_RISK_CHASE_PENALTY', 0.08) * risk_gate
-        if skill in ('baseline', 'protect') and safe_gate > 0.6 and chase_progress < 0.0:
+        if skill == 'protect' and safe_gate > 0.6 and chase_progress < 0.0:
             reward -= self._env_float('HRL_ONLINE_SAFE_STALL_PENALTY', 0.03) * safe_gate
 
         if bool(info.get('defender_collision', False)):
@@ -347,15 +333,15 @@ class HRLEnv(gym.Env):
             'advantage': {
                 'chase': 0.020,
                 'protect': 0.010,
-                'baseline': -0.030,
+                'protect': -0.030,
             },
             'neutral': {
                 'chase': 0.010,
                 'protect': 0.006,
-                'baseline': -0.012,
+                'protect': -0.012,
             },
             'disadvantage': {
-                'baseline': 0.014,
+                'protect': 0.014,
                 'protect': 0.010,
                 'chase': -0.004,
             },
@@ -364,18 +350,18 @@ class HRLEnv(gym.Env):
         if speed_regime == 'advantage':
             if skill == 'chase':
                 prior += self._env_float('HRL_REGIME_SPEED_ADV_CHASE_PRIOR', 0.006)
-            elif skill == 'baseline':
-                prior -= self._env_float('HRL_REGIME_SPEED_ADV_BASELINE_PRIOR_PENALTY', 0.006)
+            elif skill == 'protect':
+                prior -= self._env_float('HRL_REGIME_SPEED_ADV_PROTECT_PRIOR_PENALTY', 0.006)
         elif speed_regime == 'disadvantage':
             if skill == 'chase':
                 prior -= self._env_float('HRL_REGIME_SPEED_DISADV_CHASE_PRIOR_PENALTY', 0.006)
-            elif skill == 'baseline':
-                prior += self._env_float('HRL_REGIME_SPEED_DISADV_BASELINE_PRIOR', 0.006)
-        # Extra guard against "unknown opponent => always baseline": before the
-        # attacker has been observed, baseline is not rewarded unless the sampled
+            elif skill == 'protect':
+                prior += self._env_float('HRL_REGIME_SPEED_DISADV_PROTECT_PRIOR', 0.006)
+        # Extra guard against "unknown opponent => always protect": before the
+        # attacker has been observed, Protect is not rewarded unless the sampled
         # geometry is actually disadvantageous.
-        if skill == 'baseline' and margin_regime != 'disadvantage' and not bool(self.has_seen_attacker_once):
-            prior -= self._env_float('HRL_REGIME_UNKNOWN_BASELINE_PENALTY', 0.010)
+        if skill == 'protect' and margin_regime != 'disadvantage' and not bool(self.has_seen_attacker_once):
+            prior -= self._env_float('HRL_REGIME_UNKNOWN_PROTECT_PENALTY', 0.010)
         return float(weight * prior)
 
     @staticmethod

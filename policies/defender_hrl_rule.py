@@ -2,7 +2,7 @@
 Rule-based top-level HRL defender policies.
 
 Current policy:
-- Geo-trend top rule for 2-skill baseline/chase HRL.
+- Geo-trend top rule for 2-skill protect/chase HRL.
 - Uses privileged geometry for fast policy prototyping in vs.py.
 """
 
@@ -13,7 +13,7 @@ from configs import map_config
 
 
 class DefenderHRLRulePolicy:
-    """Geometry + trend rule for selecting baseline/chase top skills."""
+    """Geometry + trend rule for selecting protect/chase top skills."""
 
     def __init__(
         self,

@@ -8,12 +8,11 @@ class HRLEnvTrainParameters:
     # 将训练episode最大步长单独收敛到HRL配置，避免依赖全局默认值。
     EPISODE_LEN = 449
 
-    # 底层技能模型路径：固定为 2-skill baseline+chase。
+    # 底层技能模型路径：固定为 2-skill protect+chase。
     # 支持相对路径或绝对路径。
-    PRIMARY_SKILL_NAME = "baseline"
-    PROTECT_MODEL_PATH = str(CHECKPOINTS_DIR / "defender_baseline_mlp_ctde_repro_20260526" / "final_model.pth")
+    PRIMARY_SKILL_NAME = "protect"
+    PROTECT_MODEL_PATH = str(CHECKPOINTS_DIR / "defender_protect_mlp_ctde_repro_20260526" / "final_model.pth")
     CHASE_MODEL_PATH = str(CHECKPOINTS_DIR / "defender_chase_nmn_dual_gru_raw_dense_05-05-19-12" / "final_model.pth")
-    BASELINE_MODEL_PATH = None
 
     ATTACKER_STRATEGY = 'random'
     # 训练对手策略池（可自由选择子集）：
