@@ -23,6 +23,12 @@
   障碍路径、朝向、capture 扇区和控制延迟；raw 小样本同时显示 Protect/Chase 均有非零 terminal
   collision。后续先分离 low-margin spawn、collision/control 与 high-margin strategy failure，
   不先继续全时点切换搜索。详细边界见 `docs/protect_chase_capture_conversion_audit.md`。
+- 2026-08-11：形成只使用 Defender 64 维 radar 的恒速转向安全层。60 个 paired seeds、6 个
+  Attacker、Protect/Chase 共 720 局中，terminal collision 从 `44` 降为 `0`，Defender success
+  从 `580` 升为 `615`；旧 Chase 仍有 `1/273` 个 raw-success regression，因此该结果只证明
+  radar-steer 执行系统安全，不证明冻结网络内生安全。下一轮两个底层技能使用同一安全层从
+  随机权重重训，raw 与 radar-steer 继续分开评测。依赖全局地图且允许减速停车的旧
+  controller/env obstacle mask 及其专项 gate 入口已经退役删除，历史 masked 结果只作审计。
 
 ## Chapter 2 复现边界
 

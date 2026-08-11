@@ -11,9 +11,7 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import torch
 
-from configs import map_config
 from configs.skill_config import NetParameters
-from envs import env_lib
 from networks import create_network
 from policies.defender_global import DefenderGlobalPolicy
 from policies.defender_hrl_apollonius import DefenderHRLApolloniusLabelPolicy
@@ -476,56 +474,6 @@ class BaseDefenderController:
     def get_action(self, defender_obs: np.ndarray, attacker_obs: np.ndarray, env) -> np.ndarray:
         raise NotImplementedError
 
-    @staticmethod
-    def _apply_defender_hard_obstacle_mask(action: np.ndarray, env) -> np.ndarray:
-        if action is None:
-            return action
-
-        arr = np.asarray(action, dtype=np.float32).reshape(-1)
-        if arr.size != 2:
-            return action
-
-        base_env = env
-        required = ["_control_to_physical", "_simulate_motion", "_encode_action_like_input", "_get_action_limits"]
-        if not all(hasattr(base_env, name) for name in required) or not hasattr(base_env, "defender"):
-            return action
-
-        normalized_input = bool(np.all(np.abs(arr) <= 1.0 + 1e-6))
-        physical = base_env._control_to_physical(arr, role="defender")
-        if physical is None:
-            return action
-
-        orig_angle, orig_speed = float(physical[0]), float(physical[1])
-        max_turn, max_speed, _ = base_env._get_action_limits("defender")
-        ref_agent = base_env.defender
-        agent_radius = float(getattr(map_config, "agent_radius", getattr(base_env, "pixel_size", 4.0) * 0.5))
-
-        speed_scales = (1.0, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0.0)
-        angle_scales = (0.0, -0.2, 0.2, -0.4, 0.4, -0.6, 0.6, -0.8, 0.8, -1.0, 1.0)
-        best = None
-
-        for s in speed_scales:
-            cand_speed = float(np.clip(orig_speed * s, 0.0, max_speed))
-            for a in angle_scales:
-                cand_angle = float(np.clip(orig_angle + a * max_turn, -max_turn, max_turn))
-                nx, ny = base_env._simulate_motion(ref_agent, cand_angle, cand_speed, role="defender")
-                px = float(getattr(base_env, "pixel_size", 4.0))
-                cx = nx + px * 0.5
-                cy = ny + px * 0.5
-                if env_lib.is_point_blocked(cx, cy, padding=agent_radius):
-                    continue
-
-                angle_cost = abs(cand_angle - orig_angle) / (max_turn + 1e-6)
-                speed_cost = abs(cand_speed - orig_speed) / (max_speed + 1e-6)
-                cost = angle_cost + 0.35 * speed_cost
-                if best is None or cost < best[0]:
-                    best = (cost, cand_angle, cand_speed)
-
-        if best is None:
-            return base_env._encode_action_like_input(0.0, 0.0, "defender", normalized_input)
-        return base_env._encode_action_like_input(best[1], best[2], "defender", normalized_input)
-
-
 class PrimitiveRuleDefenderController(BaseDefenderController):
     """Single-layer rule-based defender."""
 
@@ -559,9 +507,6 @@ class LearnedSkillDefenderController(BaseDefenderController):
         super().__init__(strategy=strategy)
         cfg = dict(controller_config or {})
         self.device = _resolve_runtime_device(cfg.get("device", "cpu"))
-        # Optional evaluation ablation: match the execution shield used by the
-        # learned HRL controller without changing standalone-skill defaults.
-        self.apply_controller_obstacle_mask = bool(cfg.get("apply_controller_obstacle_mask", False))
         model_path, skill_name = _resolve_single_skill_entry(self.strategy, cfg)
         self.skill_name = str(skill_name)
         self.model, self.network_type = _load_policy_model(
@@ -581,10 +526,7 @@ class LearnedSkillDefenderController(BaseDefenderController):
     def get_action(self, defender_obs: np.ndarray, attacker_obs: np.ndarray, env) -> np.ndarray:
         self.last_skill_name = self.skill_name
         self.skill_selection_counts[self.skill_name] += 1
-        action = _predict_skill_action(self.model, defender_obs, attacker_obs)
-        if self.apply_controller_obstacle_mask:
-            return self._apply_defender_hard_obstacle_mask(action, env)
-        return action
+        return _predict_skill_action(self.model, defender_obs, attacker_obs)
 
 
 class HierarchicalRuleDefenderController(BaseDefenderController):
@@ -678,8 +620,7 @@ class HierarchicalRuleDefenderController(BaseDefenderController):
         skill_idx = self._select_skill_index(defender_obs, attacker_obs)
         skill_name = self.skill_names[skill_idx]
         net = self.skill_nets[skill_idx]
-        action = self._skill_action_from_net(skill_name, net, defender_obs, attacker_obs)
-        return self._apply_defender_hard_obstacle_mask(action, self.env)
+        return self._skill_action_from_net(skill_name, net, defender_obs, attacker_obs)
 
 
 class LearnedHRLDefenderController(BaseDefenderController):
@@ -698,7 +639,6 @@ class LearnedHRLDefenderController(BaseDefenderController):
         super().__init__(strategy=strategy)
         self.env = env
         self.device = _resolve_runtime_device(device)
-
         primary_path, chase_path = _resolve_hrl_skill_paths(
             num_skills=num_skills,
             primary_path=primary_skill_path,
@@ -752,8 +692,7 @@ class LearnedHRLDefenderController(BaseDefenderController):
         self.last_skill_index = int(skill_idx)
         self.last_skill_name = str(skill_name)
         self.skill_selection_counts[skill_name] += 1
-        action = _predict_skill_action(self.skill_models[skill_name], defender_obs, attacker_obs)
-        return self._apply_defender_hard_obstacle_mask(action, env)
+        return _predict_skill_action(self.skill_models[skill_name], defender_obs, attacker_obs)
 
 
 def create_defender_controller(
@@ -767,6 +706,10 @@ def create_defender_controller(
         controller_config=controller_config,
         policy_specs=policy_specs,
     )
+    if "apply_controller_obstacle_mask" in cfg:
+        raise ValueError(
+            "apply_controller_obstacle_mask was retired; use TADEnv defender_radar_safety"
+        )
     if key in RULE_DEFENDER_STRATEGIES:
         return PrimitiveRuleDefenderController(strategy=key)
     if key in LEARNED_SKILL_DEFENDER_STRATEGIES:

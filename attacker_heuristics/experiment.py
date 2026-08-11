@@ -242,7 +242,6 @@ class ExperimentRunner:
         spec = DEFENDER_SPECS[defender_name]
         return AttackerEnv(
             defender_strategy=spec.env_strategy,
-            env_kwargs={"hard_action_mask": False},
         )
 
     def _episode(self, env: AttackerEnv, policy_name: str, defender_name: str, seed: int):

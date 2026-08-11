@@ -55,17 +55,9 @@ class HRLEnv(gym.Env):
         early_interrupt_visibility_change: bool = True,
         early_interrupt_primary_urgency: float = 0.60,
         early_interrupt_chase_urgency: float = 0.40,
-        defender_hard_action_mask: bool = False,
-        defender_hard_action_mask_params: Optional[Dict] = None,
     ):
         super().__init__()
         self.env = TADEnv(reward_mode='hrl')
-        if defender_hard_action_mask and hasattr(self.env, 'configure_hard_action_mask'):
-            self.env.configure_hard_action_mask(
-                True,
-                role='defender',
-                **dict(defender_hard_action_mask_params or {}),
-            )
 
         self.device = torch.device(device)
         self.attacker_strategy_mode = attacker_strategy

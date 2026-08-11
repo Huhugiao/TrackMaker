@@ -428,6 +428,8 @@ class Runner:
         self.env = TADEnv(
             reward_mode=reward_mode,
             emit_skill_rewards=bool(hasattr(self.local_network, 'multitask_auxiliary_loss')),
+            defender_radar_safety=bool(self.env_configs.get('defender_radar_safety', False)),
+            defender_radar_safety_params=dict(self.env_configs.get('defender_radar_safety_params', {}) or {}),
         )
 
         self.expert_policy = None

@@ -2,7 +2,6 @@ import os
 import sys
 import math
 import copy
-from collections import deque
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -11,6 +10,7 @@ from configs import map_config
 from envs import env_lib
 from envs import rewards as reward_fn
 from configs.map_config import EnvParameters
+from .defender_radar_safety import RadarSafetyFilter
 from utils.path_risk import astar_path_length
 
 _ORIGINAL_DEFENDER_SPEED = float(getattr(map_config, 'defender_speed', 2.6))
@@ -122,45 +122,25 @@ class TADEnv(gym.Env):
         self,
         spawn_outside_fov=False,
         reward_mode='standard',
-        hard_action_mask=False,
         emit_skill_rewards=False,
+        defender_radar_safety=False,
+        defender_radar_safety_params=None,
     ):
         super().__init__()
         self.spawn_outside_fov = bool(spawn_outside_fov)
         self.reward_mode = str(reward_mode).strip().lower()
         self.emit_skill_rewards = bool(emit_skill_rewards)
+        self.defender_radar_safety_enabled = bool(defender_radar_safety)
+        self.defender_radar_safety = RadarSafetyFilter(
+            radar_rays=int(getattr(EnvParameters, 'RADAR_RAYS', 64)),
+            radar_max_range=float(
+                min(getattr(EnvParameters, 'FOV_RANGE', 300.0), math.hypot(map_config.width, map_config.height))
+            ),
+            agent_radius=float(getattr(map_config, 'agent_radius', 8.0)),
+            **dict(defender_radar_safety_params or {}),
+        )
+        self._last_defender_radar_safety = {}
         self.mask_flag = getattr(map_config, 'mask_flag', False)
-        self.hard_action_mask = bool(hard_action_mask)
-        self.defender_hard_action_mask = bool(hard_action_mask)
-        self.attacker_hard_action_mask = bool(hard_action_mask)
-        self.hard_mask_obstacle_margin = float(max(0.0, _read_env_float('TAD_HARD_MASK_MARGIN', 0.0)))
-        self.hard_mask_radius_scale = float(max(0.0, _read_env_float('TAD_HARD_MASK_RADIUS_SCALE', 1.0)))
-        self.hard_mask_lookahead_steps = int(max(1, _read_env_int('TAD_HARD_MASK_LOOKAHEAD', 1)))
-        self.hard_mask_speed_cost_weight = float(max(0.0, _read_env_float('TAD_HARD_MASK_SPEED_COST_WEIGHT', 0.35)))
-        self.hard_mask_max_deviation_cost = _read_env_float('TAD_HARD_MASK_MAX_DEVIATION_COST', -1.0)
-        if float(self.hard_mask_max_deviation_cost) < 0.0:
-            self.hard_mask_max_deviation_cost = None
-        else:
-            self.hard_mask_max_deviation_cost = float(self.hard_mask_max_deviation_cost)
-        self.hard_mask_allow_zero_fallback = bool(_read_env_bool('TAD_HARD_MASK_ALLOW_ZERO_FALLBACK', True))
-        self.hard_mask_speed_scales = (1.0, 0.8, 0.6, 0.4, 0.2, 0.0)
-        # Absolute turn fractions, not offsets from the requested turn.  This
-        # keeps the opposite steering direction available even when the actor
-        # saturates at either turn limit.
-        self.hard_mask_angle_fracs = (0.0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75, -1.0, 1.0)
-        self.hard_mask_clearance_extras = (0.0, 4.0, 8.0)
-        self.hard_mask_recovery_window = 20
-        self.hard_mask_recovery_trigger_rate = 0.8
-        self.hard_mask_recovery_min_progress = 2.0
-        self.hard_mask_recovery_steps = 8
-        self.hard_mask_recovery_speed_fraction = 0.3
-        self._last_hard_mask_diagnostics = {}
-        self._hard_mask_outcome_history = {
-            'defender': deque(maxlen=self.hard_mask_recovery_window),
-            'attacker': deque(maxlen=self.hard_mask_recovery_window),
-        }
-        self._hard_mask_recovery_remaining = {'defender': 0, 'attacker': 0}
-        self._hard_mask_recovery_turn_sign = {'defender': 0.0, 'attacker': 0.0}
         self.width = map_config.width
         self.height = map_config.height
         self.pixel_size = map_config.pixel_size
@@ -796,6 +776,7 @@ class TADEnv(gym.Env):
             'fov_cache': self._copy_obs(self._fov_cache),
             'fov_cache_valid': bool(self._fov_cache_valid),
             'rng_state': rng_state,
+            'defender_radar_safety_state': self.defender_radar_safety.get_state(),
         }
 
     def restore_state(self, state):
@@ -828,6 +809,7 @@ class TADEnv(gym.Env):
         rng_state = state.get('rng_state')
         if rng_state is not None and hasattr(self, "np_random") and self.np_random is not None:
             self.np_random.bit_generator.state = copy.deepcopy(rng_state)
+        self.defender_radar_safety.set_state(state.get('defender_radar_safety_state'))
 
     def _compute_skill_reward_components(
         self,
@@ -1112,165 +1094,6 @@ class TADEnv(gym.Env):
                 return action[0], action[1]
         return action, target_action
 
-    def set_hard_action_mask(self, enabled: bool):
-        self.hard_action_mask = bool(enabled)
-        self.defender_hard_action_mask = bool(enabled)
-        self.attacker_hard_action_mask = bool(enabled)
-
-    def configure_hard_action_mask(
-        self,
-        enabled: bool,
-        role: str = 'both',
-        obstacle_margin: float = None,
-        radius_scale: float = None,
-        lookahead_steps: int = None,
-        speed_cost_weight: float = None,
-        max_deviation_cost: float = None,
-        allow_zero_fallback: bool = None,
-        speed_scales=None,
-        angle_fracs=None,
-        clearance_extras=None,
-        recovery_window: int = None,
-        recovery_trigger_rate: float = None,
-        recovery_min_progress: float = None,
-        recovery_steps: int = None,
-        recovery_speed_fraction: float = None,
-    ):
-        role_name = str(role).strip().lower()
-        flag = bool(enabled)
-        if role_name in ('both', 'all'):
-            self.defender_hard_action_mask = flag
-            self.attacker_hard_action_mask = flag
-        elif role_name == 'defender':
-            self.defender_hard_action_mask = flag
-        elif role_name == 'attacker':
-            self.attacker_hard_action_mask = flag
-        else:
-            raise ValueError(f'Unknown hard mask role: {role}')
-
-        self.hard_action_mask = bool(self.defender_hard_action_mask or self.attacker_hard_action_mask)
-
-        if obstacle_margin is not None:
-            self.hard_mask_obstacle_margin = float(max(0.0, obstacle_margin))
-        if radius_scale is not None:
-            self.hard_mask_radius_scale = float(max(0.0, radius_scale))
-        if lookahead_steps is not None:
-            self.hard_mask_lookahead_steps = int(max(1, lookahead_steps))
-        if speed_cost_weight is not None:
-            self.hard_mask_speed_cost_weight = float(max(0.0, speed_cost_weight))
-        if max_deviation_cost is not None:
-            max_deviation_cost = float(max_deviation_cost)
-            self.hard_mask_max_deviation_cost = None if max_deviation_cost < 0.0 else max_deviation_cost
-        if allow_zero_fallback is not None:
-            self.hard_mask_allow_zero_fallback = bool(allow_zero_fallback)
-        if speed_scales is not None:
-            values = tuple(float(v) for v in speed_scales)
-            if values:
-                self.hard_mask_speed_scales = values
-        if angle_fracs is not None:
-            values = tuple(float(v) for v in angle_fracs)
-            if values:
-                self.hard_mask_angle_fracs = values
-        if clearance_extras is not None:
-            values = tuple(float(v) for v in clearance_extras)
-            if values:
-                self.hard_mask_clearance_extras = values
-        if recovery_window is not None:
-            self.hard_mask_recovery_window = int(max(2, recovery_window))
-            for role_name in ('defender', 'attacker'):
-                previous = list(self._hard_mask_outcome_history.get(role_name, ()))
-                self._hard_mask_outcome_history[role_name] = deque(
-                    previous[-self.hard_mask_recovery_window:],
-                    maxlen=self.hard_mask_recovery_window,
-                )
-        if recovery_trigger_rate is not None:
-            self.hard_mask_recovery_trigger_rate = float(
-                np.clip(recovery_trigger_rate, 0.0, 1.0)
-            )
-        if recovery_min_progress is not None:
-            self.hard_mask_recovery_min_progress = float(max(0.0, recovery_min_progress))
-        if recovery_steps is not None:
-            self.hard_mask_recovery_steps = int(max(1, recovery_steps))
-        if recovery_speed_fraction is not None:
-            self.hard_mask_recovery_speed_fraction = float(
-                np.clip(recovery_speed_fraction, 0.0, 1.0)
-            )
-
-    def reset_hard_mask_recovery(self):
-        for role_name in ('defender', 'attacker'):
-            self._hard_mask_outcome_history[role_name].clear()
-            self._hard_mask_recovery_remaining[role_name] = 0
-            self._hard_mask_recovery_turn_sign[role_name] = 0.0
-
-    def record_hard_mask_outcome(
-        self,
-        role: str,
-        path_distance: float,
-        intervened: bool,
-    ):
-        role_name = str(role).strip().lower()
-        if role_name not in self._hard_mask_outcome_history:
-            return
-        value = float(path_distance)
-        if not np.isfinite(value):
-            return
-        self._hard_mask_outcome_history[role_name].append(
-            (value, bool(intervened))
-        )
-
-    def _hard_mask_recovery_requested(self, role: str) -> bool:
-        history = self._hard_mask_outcome_history.get(role, ())
-        if len(history) < int(self.hard_mask_recovery_window):
-            return False
-        intervention_rate = float(
-            np.mean([float(item[1]) for item in history])
-        )
-        net_progress = float(history[0][0] - history[-1][0])
-        return bool(
-            intervention_rate >= self.hard_mask_recovery_trigger_rate
-            and net_progress < self.hard_mask_recovery_min_progress
-        )
-
-    def _role_hard_action_mask_enabled(self, role: str) -> bool:
-        role_name = str(role).strip().lower()
-        if role_name == 'defender':
-            return bool(self.defender_hard_action_mask)
-        if role_name == 'attacker':
-            return bool(self.attacker_hard_action_mask)
-        return bool(self.hard_action_mask)
-
-    def _estimate_candidate_clearance_level(self, center_x, center_y, base_padding: float) -> int:
-        level = 0
-        for extra in self.hard_mask_clearance_extras:
-            padding = float(max(0.0, base_padding + float(extra)))
-            if env_lib.is_point_blocked(center_x, center_y, padding=padding):
-                break
-            level += 1
-        return level
-
-    def _simulate_candidate_safety(self, agent, angle_delta, speed, role, base_padding: float):
-        tmp_agent = dict(agent)
-        min_clearance_level = None
-        lookahead_steps = int(max(1, self.hard_mask_lookahead_steps))
-
-        for _ in range(lookahead_steps):
-            nx, ny = self._simulate_motion(tmp_agent, angle_delta, speed, role)
-            cx = nx + self.pixel_size * 0.5
-            cy = ny + self.pixel_size * 0.5
-            clearance_level = self._estimate_candidate_clearance_level(cx, cy, base_padding)
-            if clearance_level <= 0:
-                return False, 0
-            if min_clearance_level is None or clearance_level < min_clearance_level:
-                min_clearance_level = clearance_level
-
-            tmp_agent['x'] = float(nx)
-            tmp_agent['y'] = float(ny)
-            tmp_agent['theta'] = float((tmp_agent.get('theta', 0.0) + angle_delta) % 360.0)
-            if role == 'attacker':
-                tmp_agent['v'] = float(speed)
-
-        return True, int(min_clearance_level or 0)
-
     def _get_action_limits(self, role):
         if role == 'attacker':
             max_turn = float(getattr(map_config, 'attacker_max_angular_speed', 12.0))
@@ -1310,168 +1133,25 @@ class TADEnv(gym.Env):
         center_y = float(new_y + self.pixel_size * 0.5)
         return bool(env_lib.is_point_blocked(center_x, center_y, padding=agent_radius))
 
-    def _encode_action_like_input(self, angle_delta, speed, role, normalized_input):
-        if normalized_input:
-            max_turn, max_speed, _ = self._get_action_limits(role)
-            turn_norm = 0.0 if max_turn <= 1e-6 else float(np.clip(angle_delta / max_turn, -1.0, 1.0))
-            speed_norm = 0.0 if max_speed <= 1e-6 else float(np.clip((speed / max_speed) * 2.0 - 1.0, -1.0, 1.0))
-            return np.array([turn_norm, speed_norm], dtype=np.float32)
-        return np.array([float(angle_delta), float(speed)], dtype=np.float32)
-
-    def _apply_hard_action_mask(self, action, role):
-        role_name = str(role).strip().lower()
-        diagnostics = {
-            'enabled': bool(self._role_hard_action_mask_enabled(role_name)),
-            'original_unsafe': False,
-            'intervened': False,
-            'zero_fallback': False,
-            'unsafe_passthrough': False,
-            'action_delta': 0.0,
-            'lookahead_steps': int(max(1, self.hard_mask_lookahead_steps)),
-            'recovery_active': False,
-            'recovery_triggered': False,
-        }
-        self._last_hard_mask_diagnostics[role_name] = diagnostics
-
-        if action is None or not diagnostics['enabled']:
-            return action
-
-        arr = np.asarray(action, dtype=np.float32).reshape(-1)
-        if arr.size != 2:
-            return action
-
-        normalized_input = bool(np.all(np.abs(arr) <= 1.0 + 1e-6))
-        physical = self._control_to_physical(arr, role)
-        if physical is None:
-            return action
-
-        orig_angle, orig_speed = float(physical[0]), float(physical[1])
-        max_turn, max_speed, _ = self._get_action_limits(role)
-        ref_agent = self.attacker if role == 'attacker' else self.defender
-        agent_radius = float(getattr(map_config, 'agent_radius', self.pixel_size * 0.5))
-        obstacle_padding = float(agent_radius * self.hard_mask_radius_scale + self.hard_mask_obstacle_margin)
-
-        recovery_remaining = int(self._hard_mask_recovery_remaining.get(role_name, 0))
-        if recovery_remaining <= 0 and self._hard_mask_recovery_requested(role_name):
-            recovery_remaining = int(self.hard_mask_recovery_steps)
-            self._hard_mask_recovery_remaining[role_name] = recovery_remaining
-            self._hard_mask_recovery_turn_sign[role_name] = 0.0
-            diagnostics['recovery_triggered'] = True
-        recovery_active = recovery_remaining > 0
-        diagnostics['recovery_active'] = recovery_active
-
-        orig_safe, _orig_clearance = self._simulate_candidate_safety(
-            ref_agent,
-            orig_angle,
-            orig_speed,
-            role,
-            obstacle_padding,
-        )
-        if orig_safe and not recovery_active:
-            return action
-        diagnostics['original_unsafe'] = not orig_safe
-
-        best = None
-        candidate_speeds = [
-            float(np.clip(orig_speed * s, 0.0, max_speed))
-            for s in self.hard_mask_speed_scales
-        ]
-        if recovery_active:
-            candidate_speeds.append(
-                float(max_speed * self.hard_mask_recovery_speed_fraction)
-            )
-        candidate_speeds = list(dict.fromkeys(round(value, 8) for value in candidate_speeds))
-
-        candidate_angles = [orig_angle]
-        candidate_angles.extend(
-            float(np.clip(frac * max_turn, -max_turn, max_turn))
-            for frac in self.hard_mask_angle_fracs
-        )
-        candidate_angles = list(dict.fromkeys(round(value, 8) for value in candidate_angles))
-
-        recovery_turn_sign = float(
-            self._hard_mask_recovery_turn_sign.get(role_name, 0.0)
-        )
-        recovery_speed = float(max_speed * self.hard_mask_recovery_speed_fraction)
-
-        for cand_speed in candidate_speeds:
-            for cand_angle in candidate_angles:
-                safe, clearance_level = self._simulate_candidate_safety(
-                    ref_agent,
-                    cand_angle,
-                    cand_speed,
-                    role,
-                    obstacle_padding,
-                )
-                if not safe:
-                    continue
-
-                angle_cost = abs(cand_angle - orig_angle) / (max_turn + 1e-6)
-                speed_cost = abs(cand_speed - orig_speed) / (max_speed + 1e-6)
-                deviation_cost = angle_cost + self.hard_mask_speed_cost_weight * speed_cost
-                if (
-                    self.hard_mask_max_deviation_cost is not None
-                    and deviation_cost > float(self.hard_mask_max_deviation_cost)
-                ):
-                    continue
-                if recovery_active:
-                    candidate_sign = float(np.sign(cand_angle))
-                    sign_cost = 0.0
-                    if recovery_turn_sign != 0.0:
-                        sign_cost = 0.0 if candidate_sign == recovery_turn_sign else 1.0
-                    speed_target_cost = abs(cand_speed - recovery_speed) / (max_speed + 1e-6)
-                    score = (
-                        sign_cost,
-                        speed_target_cost,
-                        -clearance_level,
-                        -abs(cand_angle),
-                        deviation_cost,
-                    )
-                else:
-                    # Every candidate is already collision-free.  Preserve the
-                    # actor command first; use extra clearance only to break
-                    # ties instead of steering aggressively by default.
-                    score = (deviation_cost, -clearance_level, -cand_speed)
-                if best is None or score < best[0]:
-                    best = (score, cand_angle, cand_speed)
-
-        if best is None:
-            if not self.hard_mask_allow_zero_fallback:
-                diagnostics['unsafe_passthrough'] = True
-                return action
-            applied = self._encode_action_like_input(0.0, 0.0, role, normalized_input)
-            diagnostics['zero_fallback'] = True
-        else:
-            applied = self._encode_action_like_input(best[1], best[2], role, normalized_input)
-            if recovery_active and self._hard_mask_recovery_turn_sign[role_name] == 0.0:
-                self._hard_mask_recovery_turn_sign[role_name] = float(np.sign(best[1]))
-
-        if recovery_active:
-            recovery_remaining = max(0, recovery_remaining - 1)
-            self._hard_mask_recovery_remaining[role_name] = recovery_remaining
-            if recovery_remaining == 0:
-                self._hard_mask_outcome_history[role_name].clear()
-                self._hard_mask_recovery_turn_sign[role_name] = 0.0
-
-        applied_arr = np.asarray(applied, dtype=np.float32).reshape(-1)
-        diagnostics['intervened'] = not bool(np.allclose(applied_arr, arr, atol=1e-6))
-        diagnostics['action_delta'] = float(np.linalg.norm(applied_arr - arr, ord=2))
-        return applied
-
-    def _augment_info_with_hard_mask(self, info):
+    def _augment_info_with_defender_radar_safety(self, info):
         info = dict(info or {})
-        for role in ('defender', 'attacker'):
-            diagnostics = dict(self._last_hard_mask_diagnostics.get(role, {}) or {})
-            enabled = bool(diagnostics.get('enabled', self._role_hard_action_mask_enabled(role)))
-            prefix = f'{role}_hard_mask_'
-            info[prefix + 'enabled'] = enabled
-            info[prefix + 'original_unsafe'] = bool(diagnostics.get('original_unsafe', False))
-            info[prefix + 'intervened'] = bool(diagnostics.get('intervened', False))
-            info[prefix + 'zero_fallback'] = bool(diagnostics.get('zero_fallback', False))
-            info[prefix + 'unsafe_passthrough'] = bool(diagnostics.get('unsafe_passthrough', False))
-            info[prefix + 'action_delta'] = float(diagnostics.get('action_delta', 0.0))
-            info[prefix + 'recovery_active'] = bool(diagnostics.get('recovery_active', False))
-            info[prefix + 'recovery_triggered'] = bool(diagnostics.get('recovery_triggered', False))
+        diagnostics = dict(self._last_defender_radar_safety or {})
+        prefix = 'defender_radar_safety_'
+        info[prefix + 'enabled'] = bool(self.defender_radar_safety_enabled)
+        info[prefix + 'intervened'] = bool(diagnostics.get('intervened', False))
+        info[prefix + 'mode'] = str(diagnostics.get('mode', 'disabled'))
+        info[prefix + 'action_delta'] = float(diagnostics.get('action_delta', 0.0))
+        info[prefix + 'raw_clearance'] = float(diagnostics.get('raw_clearance', math.inf))
+        info[prefix + 'raw_immediate_clearance'] = float(
+            diagnostics.get('raw_immediate_clearance', math.inf)
+        )
+        info[prefix + 'executed_clearance'] = float(diagnostics.get('executed_clearance', math.inf))
+        info[prefix + 'executed_immediate_clearance'] = float(
+            diagnostics.get('executed_immediate_clearance', math.inf)
+        )
+        info[prefix + 'raw_turn'] = float(diagnostics.get('raw_turn', 0.0))
+        info[prefix + 'executed_turn'] = float(diagnostics.get('executed_turn', 0.0))
+        info[prefix + 'speed'] = float(diagnostics.get('speed', 0.0))
         return info
 
     def _control_to_physical(self, action, role):
@@ -1500,7 +1180,7 @@ class TADEnv(gym.Env):
 
     def step(self, action=None, attacker_action=None):
         self.step_count += 1
-        self._last_hard_mask_diagnostics = {}
+        self._last_defender_radar_safety = {}
         defender_action, attacker_action = self._parse_actions(action, attacker_action)
 
         # 保存移动前的位置（用于奖励计算）
@@ -1516,7 +1196,15 @@ class TADEnv(gym.Env):
                 prev_defender_radar = prev_defender_obs[radar_start:radar_end]
 
         if defender_action is not None:
-            defender_action = self._apply_hard_action_mask(defender_action, role='defender')
+            if self.defender_radar_safety_enabled:
+                defender_obs = self.current_obs[0] if isinstance(self.current_obs, tuple) else self.current_obs
+                max_turn, max_speed, _ = self._get_action_limits('defender')
+                defender_action, self._last_defender_radar_safety = self.defender_radar_safety.filter_action(
+                    defender_obs,
+                    defender_action,
+                    max_turn=max_turn,
+                    max_speed=max_speed,
+                )
             defender_phys = self._control_to_physical(defender_action, 'defender')
             if defender_phys is not None:
                 angle_delta, speed = defender_phys
@@ -1524,19 +1212,9 @@ class TADEnv(gym.Env):
 
         attacker_collision_attempt = False
         if attacker_action is not None:
-            attacker_action = self._apply_hard_action_mask(attacker_action, role='attacker')
             attacker_phys = self._control_to_physical(attacker_action, 'attacker')
             if attacker_phys is not None:
                 angle_delta, speed = attacker_phys
-                attacker_mask = dict(
-                    self._last_hard_mask_diagnostics.get('attacker', {}) or {}
-                )
-                if attacker_mask.get('zero_fallback', False):
-                    # A target speed of zero still obeys the normal acceleration
-                    # limit.  In the emergency fallback there is no collision-free
-                    # dynamically feasible candidate, so the safety shield must
-                    # override residual velocity as a last resort.
-                    self.attacker['v'] = 0.0
                 attacker_collision_attempt = self._action_would_hit_obstacle(
                     self.attacker,
                     angle_delta,
@@ -1684,7 +1362,7 @@ class TADEnv(gym.Env):
 
         reward += self._regime_terminal_bonus(info)
         info = self._augment_info_with_regime(info)
-        info = self._augment_info_with_hard_mask(info)
+        info = self._augment_info_with_defender_radar_safety(info)
         if terminated or truncated:
             if _read_env_bool('TAD_REGIME_CONTINUOUS', False):
                 self._update_ued_continuous_stats(getattr(self, 'current_ued_key', None), info)
@@ -1697,7 +1375,7 @@ class TADEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.reset_hard_mask_recovery()
+        self.defender_radar_safety.reset()
         options = dict(options or {})
         obstacle_density = options.get('obstacle_density', None)
         if obstacle_density is not None:

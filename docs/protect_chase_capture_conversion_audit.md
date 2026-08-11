@@ -25,11 +25,10 @@ paired 转换为 218 个 `timeout -> capture`、3 个 `breach -> capture`、1 �
 `rl_ppo_evasive` 贡献 42 个；其余四个 Attacker 合计贡献 13 个。因此该结果证明特定失败分布上的
 互补效率，不证明通用切换优势。
 
-上述两个系统都在每一步对 Defender 原始动作应用
-`BaseDefenderController._apply_defender_hard_obstacle_mask`。因此表中的 `collision=0` 只说明 mask
+上述两个系统都在每一步对 Defender 原始动作应用已经退役的 controller obstacle mask。因此表中的 `collision=0` 只说明 mask
 修正后的动作没有触发 terminal collision；入口没有记录 raw 危险动作、mask intervention 或
 zero fallback，不能据此声称 Protect/Chase 本身具备碰撞安全性。`eval/vs.py` 的 standalone
-Protect/Chase 标准执行默认不启用该 mask，二者属于不同执行系统。
+Protect/Chase 与当前主线都不再提供该 mask，二者属于不同执行系统。
 
 ## 出生与碰撞归因补充审计
 
@@ -105,31 +104,13 @@ Defender pool，也不替换 Chapter 2 HRL 内部技能。
 - Chase：`models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth`，
   SHA-256 `eb05578fae6498fd5379ff15efef9c99a0e25b1233dcf577929f7e80150e6a92`。
 
-## 最小复现
+## 退役边界
 
-```bash
-protect_chase_smoke_dir=$(mktemp -d /tmp/protect_chase_guarded.XXXXXX)
-/home/cyq/miniconda3/bin/conda run --no-capture-output -n lnenv \
-  python eval/run_protect_chase_switch_sweep.py \
-  --attackers heuristic_evasive --seeds 1188001 \
-  --snapshot-start 64 --snapshot-interval 16 \
-  --burst-steps 0 --hidden-modes reset \
-  --gate-target-time-margin 40 \
-  --gate-min-defender-target-distance 15 \
-  --gate-max-attacker-target-progress-16 24 \
-  --chase-max-protect-action-disagreement 2 \
-  --direct-gate --gate-decision-end 80 \
-  --output-dir "$protect_chase_smoke_dir"
-rg -q '"protect_outcome": "timeout".*"candidate_outcome": "defender_capture".*"switch_step": 80' \
-  "$protect_chase_smoke_dir/candidate_episodes.jsonl"
-```
+该 gate 与其专项入口已经删除，不再作为可执行策略或基线；上面的统计只保留为历史审计证据，
+需要追溯实现时使用 Git 历史。旧实现依赖 simulator 全局地图、逐步枚举减速候选并允许
+zero fallback，与“只用 Defender 自身观测、保持网络速度”的当前安全层契约冲突。
 
-完整复现使用上述 6 个 Attacker，分别运行三个 100-seed blocks。入口为
-`eval/run_protect_chase_switch_sweep.py`。
-
-## 下一步
-
-保留该规则作为 shielded 冻结技能互补效率基线，不再继续搜索瞬时 heuristic 阈值。下一步先在
+下一步先在
 统一 paired cases 上分离 low-margin spawn、collision/control 和 high-margin strategy failure，并
-把 raw 与 masked 结果作为独立 ablation。只有 collision-free 的高裕度共同失败才进入 snapshot
+把 raw 与 radar-steer 结果作为独立执行系统报告。只有 collision-free 的高裕度共同失败才进入 snapshot
 切换或 learned 下层策略生成；不启动新的 top、局内 Router 或 payoff solver。

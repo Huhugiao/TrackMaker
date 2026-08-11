@@ -514,6 +514,18 @@ def main():
         'eval_use_random_seed': bool(SetupParameters.EVAL_USE_RANDOM_SEED),
         'eval_fixed_seed': int(SetupParameters.EVAL_FIXED_SEED),
     }
+    if _env_bool('DEFENDER_RADAR_SAFETY', False):
+        runner_env_cfg['defender_radar_safety'] = True
+        runner_env_cfg['defender_radar_safety_params'] = {
+            'safety_margin': _env_float('DEFENDER_RADAR_SAFETY_MARGIN', 4.0),
+            'immediate_margin': _env_float('DEFENDER_RADAR_SAFETY_IMMEDIATE_MARGIN', 4.0),
+            'horizon_steps': _env_int('DEFENDER_RADAR_SAFETY_HORIZON', 6),
+            'turn_samples': _env_int('DEFENDER_RADAR_SAFETY_TURN_SAMPLES', 33),
+            'selection_mode': str(
+                os.environ.get('DEFENDER_RADAR_SAFETY_SELECTION', 'closest')
+            ).strip().lower(),
+            'latch_steering': _env_bool('DEFENDER_RADAR_SAFETY_LATCH', True),
+        }
     if is_protect_mode:
         runner_env_cfg.update(PROTECT_ENV_CONFIG)
     else:
@@ -917,6 +929,12 @@ def main():
             'attacker_speed': float(getattr(map_config, 'attacker_speed', 2.0)),
             'defender_speed': float(getattr(map_config, 'defender_speed', 2.6)),
             'defender_collision_outcome': 'draw_in_formal_evaluation',
+            'defender_radar_safety': bool(
+                current_runner_env_cfg.get('defender_radar_safety', False)
+            ),
+            'defender_radar_safety_params': dict(
+                current_runner_env_cfg.get('defender_radar_safety_params', {}) or {}
+            ),
             'reward_contract': (
                 {
                     'step_penalty': -0.04,

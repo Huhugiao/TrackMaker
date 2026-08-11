@@ -717,7 +717,6 @@ def main():
         raise ValueError(f"SCF_RISK_METRIC must be 'astar' or 'euclidean', got {RISK_METRIC!r}")
     os.environ.setdefault("TAD_REGIME_RANDOMIZATION", "1")
     os.environ.setdefault("TAD_REGIME_PROBS", ",".join(str(x) for x in REGIME_PROBS))
-    os.environ.setdefault("VS_HRL_SAFE_MASK_ENABLE", "0")
     set_global_seeds(SEED)
     random.seed(SEED)
     np.random.seed(SEED)

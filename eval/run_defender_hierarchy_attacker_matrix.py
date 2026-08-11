@@ -64,7 +64,6 @@ class DefenderVariant:
     top_checkpoint: Optional[str]
     protect_checkpoint: str
     chase_checkpoint: str
-    apply_controller_obstacle_mask: bool
 
 
 DEFENDER_VARIANTS: Dict[str, DefenderVariant] = {
@@ -75,7 +74,6 @@ DEFENDER_VARIANTS: Dict[str, DefenderVariant] = {
         top_checkpoint="models/hrl_ch2_m1_astar_cached_top_20260606_170036/best_model.pth",
         protect_checkpoint="models/defender_protect_mlp_ctde_repro_20260526/final_model.pth",
         chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        apply_controller_obstacle_mask=True,
     ),
     "protect_skill": DefenderVariant(
         name="protect_skill",
@@ -84,16 +82,14 @@ DEFENDER_VARIANTS: Dict[str, DefenderVariant] = {
         top_checkpoint=None,
         protect_checkpoint="models/defender_protect_mlp_ctde_frozen6_20260721_105148/best_balanced_model.pth",
         chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        apply_controller_obstacle_mask=True,
     ),
     "chase_skill": DefenderVariant(
         name="chase_skill",
         env_strategy="skill_chase",
-        role="frozen recurrent chase bottom skill only; HRL-matched obstacle shield",
+        role="frozen recurrent chase bottom skill only",
         top_checkpoint=None,
         protect_checkpoint="models/defender_protect_mlp_ctde_repro_20260526/final_model.pth",
         chase_checkpoint="models/defender_chase_nmn_dual_gru_raw_dense_05-05-19-12/final_model.pth",
-        apply_controller_obstacle_mask=True,
     ),
 }
 
@@ -204,7 +200,6 @@ def _controller_config(spec: DefenderVariant) -> Dict[str, object]:
         "primary_skill_path": str(_checkpoint_path(spec.protect_checkpoint)),
         "chase_skill_path": str(_checkpoint_path(spec.chase_checkpoint)),
         "protect_skill_path": str(_checkpoint_path(spec.protect_checkpoint)),
-        "apply_controller_obstacle_mask": bool(spec.apply_controller_obstacle_mask),
     }
 
 
@@ -237,6 +232,10 @@ def run_episode(
     first_skill = None
     last_skill = None
     collision_events = 0
+    safety_steps = 0
+    safety_interventions = 0
+    safety_unavoidable = 0
+    safety_action_delta = 0.0
     done = False
     terminated = truncated = False
     info: Mapping[str, object] = {}
@@ -250,6 +249,11 @@ def run_episode(
         distances.append(float(np.linalg.norm(current["attacker"] - current["defender"])))
         previous = current
         collision_events = max(collision_events, int(info.get("attacker_collision_event_count", 0)))
+        if bool(info.get("defender_radar_safety_enabled", False)):
+            safety_steps += 1
+            safety_interventions += int(bool(info.get("defender_radar_safety_intervened", False)))
+            safety_unavoidable += int(info.get("defender_radar_safety_mode") == "unavoidable")
+            safety_action_delta += float(info.get("defender_radar_safety_action_delta", 0.0))
 
         controller = env.defender_policy
         skill_name = getattr(controller, "last_skill_name", None)
@@ -280,6 +284,18 @@ def run_episode(
         "timeout": outcome == "timeout",
         "defender_collision": outcome == "defender_collision",
         "defender_success": outcome in ("defender_capture", "timeout"),
+        "env_obstacle_mask": False,
+        "controller_obstacle_mask": False,
+        "radar_steering_filter": bool(getattr(env.env, "defender_radar_safety_enabled", False)),
+        "radar_steering_intervention_rate": (
+            float(safety_interventions / safety_steps) if safety_steps else 0.0
+        ),
+        "radar_steering_unavoidable_rate": (
+            float(safety_unavoidable / safety_steps) if safety_steps else 0.0
+        ),
+        "radar_steering_action_delta_mean": (
+            float(safety_action_delta / safety_steps) if safety_steps else 0.0
+        ),
         "episode_length": int(env.step_count),
         "attacker_collision_events": int(collision_events),
         "attacker_path_length": attacker_path,
@@ -320,6 +336,9 @@ def summarize(rows: Sequence[Mapping[str, object]]) -> Dict[str, object]:
         "protect_skill_rate",
         "chase_skill_rate",
         "skill_switches",
+        "radar_steering_intervention_rate",
+        "radar_steering_unavoidable_rate",
+        "radar_steering_action_delta_mean",
     ):
         summary[f"{key}_mean"] = _mean(rows, key)
     summary["attacker_collision_episode_rate"] = (
@@ -741,7 +760,12 @@ def run_matrix(
     attackers: Sequence[str],
     defenders: Sequence[str],
     seeds: Sequence[int],
+    safety_mode: str = "raw",
+    radar_safety_params: Optional[Mapping[str, object]] = None,
 ) -> Dict[str, object]:
+    safety_mode = str(safety_mode).strip().lower()
+    if safety_mode not in {"raw", "radar_steer"}:
+        raise ValueError(f"Unknown Defender safety mode: {safety_mode!r}")
     output_dir = output_dir.resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Output directory is non-empty: {output_dir}")
@@ -765,6 +789,14 @@ def run_matrix(
         "outcome_contract": {
             "target_success": "reason == attacker_caught_target only",
             "defender_success": "defender_capture or timeout; defender_collision excluded",
+        },
+        "safety_contract": {
+            "mode": str(safety_mode),
+            "env_obstacle_mask": False,
+            "controller_obstacle_mask": False,
+            "radar_steering_filter": safety_mode == "radar_steer",
+            "radar_safety_params": dict(radar_safety_params or {}),
+            "speed_modified": False,
         },
         "defender_audit": audit,
         "learned_attacker_audit": {
@@ -794,7 +826,10 @@ def run_matrix(
         env = AttackerEnv(
             defender_strategy=spec.env_strategy,
             defender_strategy_params=_controller_config(spec),
-            env_kwargs={"hard_action_mask": False},
+            env_kwargs={
+                "defender_radar_safety": safety_mode == "radar_steer",
+                "defender_radar_safety_params": dict(radar_safety_params or {}),
+            },
         )
         try:
             for attacker_name in attackers:
@@ -927,6 +962,20 @@ def main() -> None:
     parser.add_argument("--defenders", default=",".join(POOL_DEFENDERS))
     parser.add_argument("--seed-start", type=int, default=184000)
     parser.add_argument("--num-seeds", type=int, default=48)
+    parser.add_argument(
+        "--defender-safety-mode",
+        choices=("raw", "radar_steer"),
+        default="raw",
+    )
+    parser.add_argument("--radar-safety-margin", type=float, default=4.0)
+    parser.add_argument("--radar-safety-immediate-margin", type=float, default=4.0)
+    parser.add_argument("--radar-safety-horizon", type=int, default=6)
+    parser.add_argument("--radar-safety-turn-samples", type=int, default=33)
+    parser.add_argument(
+        "--radar-safety-selection",
+        choices=("closest", "max_clearance"),
+        default="closest",
+    )
     args = parser.parse_args()
 
     attackers = _split_csv(args.attackers)
@@ -937,7 +986,20 @@ def main() -> None:
     if args.num_seeds <= 0:
         raise ValueError("--num-seeds must be positive")
     seeds = tuple(range(int(args.seed_start), int(args.seed_start) + int(args.num_seeds)))
-    result = run_matrix(args.output_root / args.run_id, attackers, defenders, seeds)
+    result = run_matrix(
+        args.output_root / args.run_id,
+        attackers,
+        defenders,
+        seeds,
+        safety_mode=args.defender_safety_mode,
+        radar_safety_params={
+            "safety_margin": args.radar_safety_margin,
+            "immediate_margin": args.radar_safety_immediate_margin,
+            "horizon_steps": args.radar_safety_horizon,
+            "turn_samples": args.radar_safety_turn_samples,
+            "selection_mode": args.radar_safety_selection,
+        },
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

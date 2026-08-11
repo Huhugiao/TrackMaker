@@ -78,25 +78,6 @@ def _read_env_float(name: str, default: float) -> float:
         return float(default)
 
 
-def _read_env_float_list(name: str, default):
-    raw = os.environ.get(name, None)
-    if raw is None:
-        return tuple(float(v) for v in default)
-    text = str(raw).strip()
-    if not text:
-        return tuple(float(v) for v in default)
-    values = []
-    for token in text.split(','):
-        item = token.strip()
-        if not item:
-            continue
-        try:
-            values.append(float(item))
-        except (TypeError, ValueError):
-            return tuple(float(v) for v in default)
-    return tuple(values) if values else tuple(float(v) for v in default)
-
-
 def _current_task_margin(env: object) -> Optional[float]:
     base_env = env.env if hasattr(env, 'env') else env
     defender = getattr(base_env, 'defender', None)
@@ -242,56 +223,6 @@ HRL_EVAL_DISABLE_HOLD_CONTROL = bool(HRLEnvTrainParameters.DISABLE_HOLD_CONTROL)
 
 import ray
 from skill.util import get_adjusted_n_envs, get_ray_temp_dir
-
-
-def _disable_env_hard_mask(env):
-    base_env = env.env if hasattr(env, 'env') else env
-    if hasattr(base_env, 'set_hard_action_mask'):
-        base_env.set_hard_action_mask(False)
-    else:
-        setattr(base_env, 'hard_action_mask', False)
-
-
-def _get_hrl_eval_defender_mask_params() -> Optional[Dict]:
-    if not _read_env_bool('VS_HRL_SAFE_MASK_ENABLE', True):
-        return None
-    return {
-        'obstacle_margin': _read_env_float('VS_HRL_SAFE_MASK_MARGIN', 0.0),
-        'radius_scale': _read_env_float('VS_HRL_SAFE_MASK_RADIUS_SCALE', 0.993),
-        'lookahead_steps': _read_env_int('VS_HRL_SAFE_MASK_LOOKAHEAD', 1),
-        'speed_cost_weight': _read_env_float('VS_HRL_SAFE_MASK_SPEED_COST_WEIGHT', 0.35),
-        'max_deviation_cost': _read_env_float('VS_HRL_SAFE_MASK_MAX_DEVIATION_COST', -1.0),
-        'allow_zero_fallback': _read_env_bool('VS_HRL_SAFE_MASK_ALLOW_ZERO_FALLBACK', True),
-        'speed_scales': _read_env_float_list(
-            'VS_HRL_SAFE_MASK_SPEED_SCALES',
-            (1.0, 0.8, 0.6, 0.4, 0.2, 0.0),
-        ),
-        'angle_fracs': _read_env_float_list(
-            'VS_HRL_SAFE_MASK_ANGLE_FRACS',
-            (0.0, -0.2, 0.2, -0.4, 0.4, -0.6, 0.6, -1.0, 1.0),
-        ),
-        'clearance_extras': _read_env_float_list(
-            'VS_HRL_SAFE_MASK_CLEARANCE_EXTRAS',
-            (0.0, 4.0, 8.0),
-        ),
-    }
-
-
-def _maybe_enable_eval_defender_mask(env, defender_strategy: str):
-    strategy = str(defender_strategy).strip().lower()
-    enable_for_hrl = strategy == 'hrl'
-    enable_for_chase = strategy == 'chase' and _read_env_bool('VS_CHASE_SAFE_MASK_ENABLE', False)
-    enable_for_protect = strategy == 'protect' and _read_env_bool('VS_PROTECT_SAFE_MASK_ENABLE', False)
-    if not (enable_for_hrl or enable_for_chase or enable_for_protect):
-        return
-    params = _get_hrl_eval_defender_mask_params()
-    if not params:
-        return
-    base_env = env.env if hasattr(env, 'env') else env
-    if hasattr(base_env, 'configure_hard_action_mask'):
-        base_env.configure_hard_action_mask(True, role='defender', **params)
-        label = 'HRL' if enable_for_hrl else ('Chase' if enable_for_chase else 'Protect')
-        print(f"[Eval {label} SafeMask] {params}")
 
 
 def _allow_parallel_learned_attacker() -> bool:
@@ -1355,55 +1286,6 @@ class Defenderevaluator:
         self._privileged_critic_hidden = next_critic_hidden.detach() if next_critic_hidden is not None else None
         return np.asarray([skill_idx], dtype=np.float32)
 
-    @staticmethod
-    def _apply_defender_hard_obstacle_mask(action: np.ndarray, env: object) -> np.ndarray:
-        """Apply defender-only hard obstacle mask for rule-based baselines."""
-        if action is None:
-            return action
-        arr = np.asarray(action, dtype=np.float32).reshape(-1)
-        if arr.size != 2:
-            return action
-
-        base_env = env.env if hasattr(env, 'env') else env
-        required = ['_control_to_physical', '_simulate_motion', '_encode_action_like_input', '_get_action_limits']
-        if not all(hasattr(base_env, name) for name in required) or not hasattr(base_env, 'defender'):
-            return action
-
-        normalized_input = bool(np.all(np.abs(arr) <= 1.0 + 1e-6))
-        physical = base_env._control_to_physical(arr, role='defender')
-        if physical is None:
-            return action
-
-        orig_angle, orig_speed = float(physical[0]), float(physical[1])
-        max_turn, max_speed, _ = base_env._get_action_limits('defender')
-        ref_agent = base_env.defender
-        agent_radius = float(getattr(map_config, 'agent_radius', getattr(base_env, 'pixel_size', 4.0) * 0.5))
-
-        speed_scales = (1.0, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0.0)
-        angle_scales = (0.0, -0.2, 0.2, -0.4, 0.4, -0.6, 0.6, -0.8, 0.8, -1.0, 1.0)
-        best = None
-
-        for s in speed_scales:
-            cand_speed = float(np.clip(orig_speed * s, 0.0, max_speed))
-            for a in angle_scales:
-                cand_angle = float(np.clip(orig_angle + a * max_turn, -max_turn, max_turn))
-                nx, ny = base_env._simulate_motion(ref_agent, cand_angle, cand_speed, role='defender')
-                px = float(getattr(base_env, 'pixel_size', 4.0))
-                cx = nx + px * 0.5
-                cy = ny + px * 0.5
-                if env_lib.is_point_blocked(cx, cy, padding=agent_radius):
-                    continue
-
-                angle_cost = abs(cand_angle - orig_angle) / (max_turn + 1e-6)
-                speed_cost = abs(cand_speed - orig_speed) / (max_speed + 1e-6)
-                cost = angle_cost + 0.35 * speed_cost
-                if best is None or cost < best[0]:
-                    best = (cost, cand_angle, cand_speed)
-
-        if best is None:
-            return base_env._encode_action_like_input(0.0, 0.0, 'defender', normalized_input)
-        return base_env._encode_action_like_input(best[1], best[2], 'defender', normalized_input)
-
     def get_action(self, obs: np.ndarray, env: object, attacker_obs: np.ndarray = None) -> np.ndarray:
         """Get action from policy"""
         # RL策略（包括各种技能模型）
@@ -1897,10 +1779,6 @@ def _run_serial_evaluation(
         env = TrackingEnv()
     else:
         env = TrackingEnv()
-
-    # 全局硬掩码默认关闭；仅 HRL 在环境层按需开启 defender hard-mask。
-    _disable_env_hard_mask(env)
-    _maybe_enable_eval_defender_mask(env, defender_strategy)
 
     defender_eval = Defenderevaluator(
         defender_strategy,

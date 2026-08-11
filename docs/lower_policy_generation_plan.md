@@ -43,13 +43,40 @@ Attacker 同时使用两条生成路线：
 `models/defender_protect_mlp_ctde_repro_20260526/final_model.pth`。规则策略只能用于环境诊断，
 不能进入正式 Defender pool。
 
+### Defender 本地雷达安全层
+
+`envs/defender_radar_safety.py` 提供套在底层网络外的恒速转向投影。它只读取 Defender actor
+观测中的 64 维 radar 与网络原始动作，不读取地图、Attacker/Target 真值或 privileged critic
+状态。安全层按网络当前速度外推 6 步，从 33 个转向候选中选择离网络动作最近的安全转向；速度
+分量逐位保留，不允许通过减速或停车避障。默认净空为 `agent_radius + 4.0`，低速脉冲期间保持
+上一次逃逸方向，避免 recurrent Chase 的零速动作使左右转向反复振荡。
+
+专项 paired 评测使用 `eval/run_defender_hierarchy_attacker_matrix.py --defender-safety-mode
+radar_steer`。在 seeds `286300..286359`、6 个冻结 Attacker、Protect/Chase 各 360 局上，raw
+与 radar-steer 分开记录：
+
+- raw：collision `44/720`，Defender success `580/720`，capture `447/720`，target success `96/720`；
+- radar-steer：collision `0/720`，Defender success `615/720`，capture `472/720`，target success
+  `105/720`；新增 breach 全部来自 raw collision 的重新分配或下述 paired regression；
+- Protect 的 raw-success paired regression 为 `0/307`；Chase 为 `1/273`，因此不能宣称旧
+  checkpoint 已具备内生安全性，也不能把 masked 的零碰撞归因于网络本身。
+
+下一轮 Protect 与 Chase 从随机权重重新训练时，在 rollout 与评测环境中同时设置
+`DEFENDER_RADAR_SAFETY=1`，让策略适应实际执行动作。训练 run config 必须保留安全层参数；raw
+评测仍单独保留。禁止用 BC、DAgger、teacher/anchor、KL-to-BC 或旧 checkpoint warm-start
+消除上述 paired regression。
+
+旧 controller/env obstacle mask 已从执行、训练和评测入口删除。它读取 simulator 全局地图，
+枚举减速候选并允许停车，既不满足本地观测约束，也会引入卡死风险；历史 masked 结果仅作审计，
+当前只允许 `raw` 与 `radar_steer` 两种执行模式。
+
 ## 联合覆盖与效率目标
 
 在新的切换扫描或技能训练前，先完成失败归因：
 
 1. `low-margin spawn`：按出生时 Euclidean/A* Target 时间裕度分层；低裕度是独立 stress cohort，
    不自动从总指标中删除，也不能直接归因于策略；
-2. `collision/control`：记录 raw terminal collision、原始危险动作和 obstacle mask 干预；
+2. `collision/control`：记录 raw terminal collision、雷达安全层干预和不可避免标记；
 3. `high-margin strategy failure`：高裕度、无碰撞控制混杂且 Protect/Chase 共同失败的状态。
 
 只有第三类才用于判断底层策略覆盖缺口或继续做 snapshot 切换。当前不先运行全时点
@@ -67,11 +94,11 @@ recoverability sweep。
 - Protect-only success、Chase-only success、双方共同 success、双方共同 failure；
 - 独占成功 cohort 的 capture step、episode length 与路径长度；
 - 出生时 Euclidean/A* 时间裕度、绕障系数以及按裕度分层的 outcome；
-- controller/env obstacle mask 状态、raw 危险动作、mask intervention 与 zero fallback；
+- controller/env obstacle mask 状态必须显式为关闭，并记录 radar-steer 开关、干预率与不可避免率；
 - 任意切换策略相对 Protect-only 和 Chase-only 的 paired 转移矩阵。
 
 oracle union 只表示覆盖上界，不等于在线切换器的可实现性能。任何切换方案都必须独立报告
-`success -> breach`、`timeout -> capture`、collision 和额外时长，不能只报告覆盖率。raw 与 masked
+`success -> breach`、`timeout -> capture`、collision 和额外时长，不能只报告覆盖率。raw 与 radar-steer
 结果属于不同执行系统，不能互相替代。
 
 ## 策略生成门槛

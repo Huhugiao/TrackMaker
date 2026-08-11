@@ -237,7 +237,6 @@ def main() -> None:
             "TAD_REGIME_DECOUPLED": "0" if args.old_regime else "1",
             "TAD_UED_SELF_PACED_ENABLE": "0",
             "TAD_REGIME_TERMINAL_REWARD_ENABLE": "0",
-            "VS_HRL_SAFE_MASK_ENABLE": "0",
         }
     )
 
