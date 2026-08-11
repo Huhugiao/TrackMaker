@@ -16,7 +16,13 @@
 - 2026-07-20：pursuer/interceptor/sentinel 在统一矩阵中的 Defender success 分别为 `61.46%/48.96%/37.50%`，三者退出正式 Defender pool。
 - 2026-07-21：六个冻结 Attacker 全部接入 Defender runner 并通过真实环境 smoke，随后形成当前 Protect checkpoint。
 - 2026-07-22：统一复测确认 active Defender pool 为 Protect、recurrent Chase 与 A* path-risk HRL；未通过门槛的新 Chase 不晋级。
-- 2026-08-08 至 2026-08-10：完成 Protect 与 recurrent Chase 的捕获互补性审计。诊断 gate 能将大量 timeout 转为 capture，但存在少量安全退化，因此只保留为互补效率证据，不作为部署策略。
+- 2026-08-08 至 2026-08-10：完成带 controller obstacle mask 的 Protect 与 recurrent Chase 捕获
+  互补性审计。诊断 gate 能将大量 timeout 转为 capture，但存在少量安全退化；该结果只证明
+  shielded 执行系统的互补效率，不证明 raw 底层技能具备同等性能或碰撞安全性。
+- 2026-08-11：补充出生与碰撞归因审计。默认出生只保证 Euclidean Target 时间优势，不覆盖
+  障碍路径、朝向、capture 扇区和控制延迟；raw 小样本同时显示 Protect/Chase 均有非零 terminal
+  collision。后续先分离 low-margin spawn、collision/control 与 high-margin strategy failure，
+  不先继续全时点切换搜索。详细边界见 `docs/protect_chase_capture_conversion_audit.md`。
 
 ## Chapter 2 复现边界
 
@@ -44,7 +50,8 @@
 1. Defender 底层只保留 Protect 与 Chase；所有代码、配置、模型元数据和评测结果使用这两个正式名称。
 2. Attacker 同时使用 heuristic learning 与纯 RL：程序化候选为 `default/evasive`、`geometry_feint_v3`、`occlusion_dash_v2`，学习型候选为 PPO `goal_rush/evasive`。
 3. 候选必须在同一环境契约和 paired fixed seeds 上形成交叉 outcome/行为矩阵，按真实终局、独占成功、行为差异和 payoff 非支配性晋级。
-4. 研究首先提高 Protect + Chase 的联合覆盖，其次提高可实现总体胜率，最后优化 capture 与时长效率。
+4. 研究首先对失败做出生裕度与碰撞控制归因，再提高 Protect + Chase 的真实联合覆盖；其次提高
+   可实现总体胜率，最后优化 capture 与时长效率。
 5. active HRL 固定使用 Chapter 2 A* top 及其 Protect + Chase 技能，不改变 checkpoint 的动作索引语义。
 
 ## 已确认负结果

@@ -45,6 +45,16 @@ Attacker 同时使用两条生成路线：
 
 ## 联合覆盖与效率目标
 
+在新的切换扫描或技能训练前，先完成失败归因：
+
+1. `low-margin spawn`：按出生时 Euclidean/A* Target 时间裕度分层；低裕度是独立 stress cohort，
+   不自动从总指标中删除，也不能直接归因于策略；
+2. `collision/control`：记录 raw terminal collision、原始危险动作和 obstacle mask 干预；
+3. `high-margin strategy failure`：高裕度、无碰撞控制混杂且 Protect/Chase 共同失败的状态。
+
+只有第三类才用于判断底层策略覆盖缺口或继续做 snapshot 切换。当前不先运行全时点
+recoverability sweep。
+
 评测必须同时回答三个问题：
 
 1. 联合覆盖：`Protect OR Chase` 能阻止多少 paired cases；
@@ -56,14 +66,19 @@ Attacker 同时使用两条生成路线：
 - Protect-only、Chase-only、oracle union 的 capture/timeout/breach/collision；
 - Protect-only success、Chase-only success、双方共同 success、双方共同 failure；
 - 独占成功 cohort 的 capture step、episode length 与路径长度；
+- 出生时 Euclidean/A* 时间裕度、绕障系数以及按裕度分层的 outcome；
+- controller/env obstacle mask 状态、raw 危险动作、mask intervention 与 zero fallback；
 - 任意切换策略相对 Protect-only 和 Chase-only 的 paired 转移矩阵。
 
 oracle union 只表示覆盖上界，不等于在线切换器的可实现性能。任何切换方案都必须独立报告
-`success -> breach`、`timeout -> capture`、collision 和额外时长，不能只报告覆盖率。
+`success -> breach`、`timeout -> capture`、collision 和额外时长，不能只报告覆盖率。raw 与 masked
+结果属于不同执行系统，不能互相替代。
 
 ## 策略生成门槛
 
-新 Defender specialist 只允许从 Protect/Chase 的共同失败或效率劣势状态中训练。候选晋级必须满足：
+新 Defender specialist 只允许从完成上述归因后的 high-margin strategy failure 或明确的效率劣势
+状态中训练。low-margin spawn 用于单独评估鲁棒边界；collision/control failure 优先归入安全控制，
+不能直接包装成新策略需求。候选晋级必须满足：
 
 - 使用未参与调参的 paired fixed-seed holdout；
 - 在至少两个独立 seed block 中提供正向独占覆盖；

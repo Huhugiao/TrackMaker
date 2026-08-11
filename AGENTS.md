@@ -27,6 +27,8 @@
 - 新主线禁止 BC、DAgger、teacher/anchor、KL-to-BC 及 A0/A1/A1b warm-start；相关方法只能经用户明确同意后作为独立 ablation。
 - checkpoint 按固定种子的真实 `target_success_rate` 选择，不按 shaped reward 或旧 `win` 选择。
 - `defender_collision` 计为 draw，不得暗中并入任一方成功率。
+- Defender 评测必须显式记录 controller/env obstacle mask 或 action shield 是否启用。masked 与 raw
+  结果必须分开报告；masked 评测中的 `collision=0` 不能解释为底层技能本身具备碰撞安全性。
 - `eval/vs.py` 是 learned/rule policy 的标准评测流程；常规对比必须复用其 `run_evaluation` 或 CLI，只通过显式参数调整策略、checkpoint、episode、seed 和环境配置。
 - 专项矩阵确需独立入口时，必须保持同一契约：每局重置环境和策略状态、checkpoint greedy 推理、paired fixed seeds、按终局 `reason` 分离 capture/target success/timeout/collision，并保存逐局记录；任何偏离必须写明。
 - 启动 Defender 长训练前，所有冻结 Attacker 必须完成真实加载 smoke test，opponent spec 必须写入 run config。
@@ -49,7 +51,9 @@
 - 第一目标是提高 Protect + Chase 的联合覆盖率。
 - 第二目标是在覆盖率不下降的前提下提高总体胜率、capture rate，并缩短成功局时长。
 - 主要风险是“伪多样性”：名称、reward style 或轨迹不同，但真实成败高度重合。
-- 后续从相同 simulator snapshot 比较两技能，定位独占成功、共同失败和效率差异，再决定是否生成新的 learned specialist。
+- 互补失败必须先分为 low-margin spawn、collision/control 和 high-margin strategy failure；低裕度出生
+  与 mask 干预不得直接归因于策略。只对 collision-free 的高裕度共同失败继续做 snapshot 切换或
+  learned specialist 研究。
 
 ## 权威文档
 
