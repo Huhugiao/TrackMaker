@@ -1,6 +1,6 @@
 # 下层攻防策略生成计划
 
-最后更新：2026-08-11
+最后更新：2026-08-12
 
 ## 当前研究范围
 
@@ -32,6 +32,27 @@ Attacker 同时使用两条生成路线：
 - `models/attacker_nmn_mlp_diversity_continuation_20260715_120331/best_goal_rush.pth`
 - `models/attacker_nmn_mlp_diversity_continuation_20260715_120331/best_evasive.pth`
 
+### Attacker pool 对 Defender 的已观测价值
+
+使用未参与安全层选择的 paired seed blocks `686300..686359`、`786300..786359`，对 2026-05
+legacy MLP Protect 与当前 frozen6 Protect 分别做 `raw/radar_steer` 交叉诊断，共 2,880 局。
+`radar_steer` 下，当前 Protect 在全部 720 个 cases 上成功 `675` 局，legacy Protect 成功 `653`
+局；paired 转移为 `31` 个旧失败转成功、`9` 个旧成功转失败。只看四个新增 Attacker 时为
+`447/480` 对 `431/480`，paired `24/8`。
+
+进一步限制为 `initial_target_time_margin >= 20` 且两个 checkpoint 均无 terminal collision：
+
+- 四个新增 Attacker：`404/417` 对 `389/417`，提升 `3.60pp`，paired `16/1`；
+- 两个新增程序化 Attacker：`202/209` 对 `192/209`，提升 `4.78pp`，paired `10/0`；
+- 两个新增 RL Attacker：`202/208` 对 `197/208`，提升 `2.40pp`，paired `6/1`，现有样本不足以
+  单独确认其贡献。
+
+该结果说明 frozen6 Protect 在安全执行系统和高裕度策略 cohort 中存在正向关联，主要证据来自
+`geometry_feint_v3/occlusion_dash_v2`；但两个 checkpoint 的 reward、对手池和选择流程并非只差
+“是否加入新 Attacker”，因此不能作因果归因。若要宣称新增 Attacker 提升 Defender，必须从随机
+权重使用同一训练配方和相同 `radar_steer` rollout，比较 full pool 与 leave-out pool；当前结果只
+作为是否值得启动该受控重训的前置证据。
+
 ## Defender 两技能主线
 
 正式底层技能只包括：
@@ -48,23 +69,30 @@ Attacker 同时使用两条生成路线：
 `envs/defender_radar_safety.py` 提供套在底层网络外的恒速转向投影。它只读取 Defender actor
 观测中的 64 维 radar 与网络原始动作，不读取地图、Attacker/Target 真值或 privileged critic
 状态。安全层按网络当前速度外推 6 步，从 33 个转向候选中选择离网络动作最近的安全转向；速度
-分量逐位保留，不允许通过减速或停车避障。默认净空为 `agent_radius + 4.0`，低速脉冲期间保持
-上一次逃逸方向，避免 recurrent Chase 的零速动作使左右转向反复振荡。
+分量逐位保留，不允许通过减速或停车避障。默认净空为 `agent_radius + 4.0`。安全动作（包括
+低速或零速动作）必须严格透传；上一次逃逸方向只用于在后续同等小的危险动作修正之间打破
+左右平局，不能用虚构高速轨迹覆盖网络动作。
 
 专项 paired 评测使用 `eval/run_defender_hierarchy_attacker_matrix.py --defender-safety-mode
-radar_steer`。在 seeds `286300..286359`、6 个冻结 Attacker、Protect/Chase 各 360 局上，raw
-与 radar-steer 分开记录：
+radar_steer`。早期 seeds `286300..286359` 被连续用于参数选择，且当时的低速锁会用虚构高速
+覆盖真实安全动作；其 `collision=0/720` 只保留为 development 记录，不能作为当前实现的 holdout
+证据。
 
-- raw：collision `44/720`，Defender success `580/720`，capture `447/720`，target success `96/720`；
-- radar-steer：collision `0/720`，Defender success `615/720`，capture `472/720`，target success
-  `105/720`；新增 breach 全部来自 raw collision 的重新分配或下述 paired regression；
-- Protect 的 raw-success paired regression 为 `0/307`；Chase 为 `1/273`，因此不能宣称旧
-  checkpoint 已具备内生安全性，也不能把 masked 的零碰撞归因于网络本身。
+修正后在未参与选择的 seeds `486300..486359`、6 个冻结 Attacker、Protect/Chase 各 360 局上：
+
+- raw：collision `51/720`，Defender success `615/720`，capture `482/720`，target success `54/720`；
+- radar-steer：collision `7/720`，Defender success `652/720`，capture `503/720`，target success
+  `61/720`；逐步回放确认 7 次碰撞均在恒速候选全部不安全的 `unavoidable` 状态终止；
+- Protect collision `32 -> 0`，但有 `1` 个 raw success 转为 breach；Chase collision `19 -> 7`，
+  且有 `4` 个 raw success 转为 breach、`3` 个 raw success 转为 collision；
+- 总体改善不能抵消 paired regression。当前冻结 checkpoint 不允许把 radar-steer 当作无损默认
+  执行层，也不能宣称它保证零碰撞。
 
 下一轮 Protect 与 Chase 从随机权重重新训练时，在 rollout 与评测环境中同时设置
 `DEFENDER_RADAR_SAFETY=1`，让策略适应实际执行动作。训练 run config 必须保留安全层参数；raw
-评测仍单独保留。禁止用 BC、DAgger、teacher/anchor、KL-to-BC 或旧 checkpoint warm-start
-消除上述 paired regression。
+评测仍单独保留。Protect/Chase 已分别通过 32-step、单 PPO update 的随机初始化 smoke，只证明
+训练链可运行，不构成性能证据。禁止用 BC、DAgger、teacher/anchor、KL-to-BC 或旧 checkpoint
+warm-start 消除上述 paired regression。
 
 旧 controller/env obstacle mask 已从执行、训练和评测入口删除。它读取 simulator 全局地图，
 枚举减速候选并允许停车，既不满足本地观测约束，也会引入卡死风险；历史 masked 结果仅作审计，

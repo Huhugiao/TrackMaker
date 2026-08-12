@@ -56,6 +56,21 @@ def test_unavoidable_case_never_reduces_speed():
     assert applied[1] == action[1]
 
 
+def test_latch_never_changes_a_safe_low_speed_action():
+    safety = RadarSafetyFilter(latch_steering=True)
+    safety._latched_turn_sign = 1.0
+    obs = _obs_with_ranges()
+    obs[7] = 2.0 * 20.0 / 300.0 - 1.0
+    action = np.asarray([-0.5, -1.0], dtype=np.float32)
+
+    applied, diagnostics = safety.filter_action(obs, action, max_turn=6.0, max_speed=2.6)
+
+    assert applied is action
+    assert diagnostics["mode"] == "pass"
+    assert not diagnostics["intervened"]
+    assert diagnostics["latched_turn_sign"] == 1.0
+
+
 def test_legacy_map_based_masks_are_not_exposed():
     assert "hard_action_mask" not in inspect.signature(TADEnv).parameters
     assert not hasattr(TADEnv, "_apply_hard_action_mask")
@@ -76,4 +91,5 @@ if __name__ == "__main__":
     test_clear_path_preserves_action_exactly()
     test_obstacle_ahead_changes_only_steering()
     test_unavoidable_case_never_reduces_speed()
+    test_latch_never_changes_a_safe_low_speed_action()
     test_legacy_map_based_masks_are_not_exposed()

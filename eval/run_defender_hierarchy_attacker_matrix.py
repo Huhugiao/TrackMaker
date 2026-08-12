@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from envs.attacker_env import AttackerEnv  # noqa: E402
+from configs import map_config  # noqa: E402
 from attacker.learned_policy import LearnedAttackerPolicy  # noqa: E402
 from attacker.frozen_pool import (  # noqa: E402
     FROZEN_ATTACKER_POOL,
@@ -273,6 +274,15 @@ def run_episode(
     total_skill_steps = int(sum(skill_counts.values()))
     final_target_distance = float(np.linalg.norm(previous["attacker"] - previous["target"]))
     initial_target_distance = float(np.linalg.norm(initial["attacker"] - initial["target"]))
+    initial_defender_target_distance = float(np.linalg.norm(initial["defender"] - initial["target"]))
+    reach_radius = float(
+        getattr(map_config, "agent_radius", 8.0)
+        + getattr(map_config, "target_radius", 16.0)
+    )
+    initial_target_time_margin = (
+        max(0.0, initial_target_distance - reach_radius) / float(env.attacker_speed)
+        - max(0.0, initial_defender_target_distance - reach_radius) / float(env.defender_speed)
+    )
     return {
         "defender": defender_name,
         "attacker": attacker_name,
@@ -302,6 +312,8 @@ def run_episode(
         "defender_path_length": defender_path,
         "mean_attacker_defender_distance": float(np.mean(distances)),
         "initial_target_distance": initial_target_distance,
+        "initial_defender_target_distance": initial_defender_target_distance,
+        "initial_target_time_margin": float(initial_target_time_margin),
         "final_target_distance": final_target_distance,
         "target_progress": initial_target_distance - final_target_distance,
         "protect_skill_rate": float(skill_counts["protect"] / total_skill_steps) if total_skill_steps else 0.0,
@@ -766,6 +778,15 @@ def run_matrix(
     safety_mode = str(safety_mode).strip().lower()
     if safety_mode not in {"raw", "radar_steer"}:
         raise ValueError(f"Unknown Defender safety mode: {safety_mode!r}")
+    effective_radar_safety_params = {
+        "safety_margin": 4.0,
+        "immediate_margin": 4.0,
+        "horizon_steps": 6,
+        "turn_samples": 33,
+        "selection_mode": "closest",
+        "latch_steering": True,
+        **dict(radar_safety_params or {}),
+    }
     output_dir = output_dir.resolve()
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Output directory is non-empty: {output_dir}")
@@ -795,7 +816,13 @@ def run_matrix(
             "env_obstacle_mask": False,
             "controller_obstacle_mask": False,
             "radar_steering_filter": safety_mode == "radar_steer",
-            "radar_safety_params": dict(radar_safety_params or {}),
+            "radar_safety_params": effective_radar_safety_params,
+            "safe_action_passthrough": True,
+            "latch_role": "unsafe-candidate tie-break only",
+            "radar_safety_source": {
+                "path": str(PROJECT_ROOT / "envs" / "defender_radar_safety.py"),
+                "sha256": _sha256(PROJECT_ROOT / "envs" / "defender_radar_safety.py"),
+            },
             "speed_modified": False,
         },
         "defender_audit": audit,
@@ -828,7 +855,7 @@ def run_matrix(
             defender_strategy_params=_controller_config(spec),
             env_kwargs={
                 "defender_radar_safety": safety_mode == "radar_steer",
-                "defender_radar_safety_params": dict(radar_safety_params or {}),
+                "defender_radar_safety_params": effective_radar_safety_params,
             },
         )
         try:

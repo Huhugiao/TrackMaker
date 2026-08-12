@@ -1,6 +1,6 @@
 # TrackMaker 项目历史与主线
 
-最后更新：2026-08-11
+最后更新：2026-08-12
 
 本文档只记录需要长期保留的研究结论、正式资产和当前工程方向。详细实验过程由 Git 历史保存，
 失败分支和原始运行数据不长期堆放在主工作树。
@@ -26,9 +26,19 @@
 - 2026-08-11：形成只使用 Defender 64 维 radar 的恒速转向安全层。60 个 paired seeds、6 个
   Attacker、Protect/Chase 共 720 局中，terminal collision 从 `44` 降为 `0`，Defender success
   从 `580` 升为 `615`；旧 Chase 仍有 `1/273` 个 raw-success regression，因此该结果只证明
-  radar-steer 执行系统安全，不证明冻结网络内生安全。下一轮两个底层技能使用同一安全层从
+  当时 development 配置的表现，不证明冻结网络内生安全。下一轮两个底层技能使用同一安全层从
   随机权重重训，raw 与 radar-steer 继续分开评测。依赖全局地图且允许减速停车的旧
   controller/env obstacle mask 及其专项 gate 入口已经退役删除，历史 masked 结果只作审计。
+- 2026-08-12：对抗性审查发现旧低速锁会修改真实安全的零速动作，已收缩为只在危险候选的
+  同等小转向之间打破左右平局。新 holdout seeds `486300..486359` 上 collision `51 -> 7`、
+  Defender success `615 -> 652`，但仍有 5 个 raw success 转 breach、3 个 raw success 转
+  collision，主要集中于 recurrent Chase 的恒速 `unavoidable` 状态。因此该层可进入随机初始化
+  重训实验，但不能无损套用到当前冻结 checkpoint；Protect/Chase 的单 PPO update smoke 已通过。
+- 2026-08-12：用两个新 paired seed blocks 对 legacy Protect 与 frozen6 Protect 完成
+  `raw/radar_steer` 交叉诊断。安全执行下，四个新增 Attacker 的高裕度、双方 collision-free
+  cases 中 frozen6 Protect 成功率提高 `3.60pp`，paired gain/loss 为 `16/1`；证据主要来自两个
+  程序化 Attacker，两个 RL Attacker 的独立贡献尚未确认。因 checkpoint 训练配方不完全同构，
+  该结果只支持启动同配方 full-pool/leave-out 受控重训，不支持直接作因果声明。
 
 ## Chapter 2 复现边界
 

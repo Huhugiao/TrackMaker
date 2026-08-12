@@ -143,9 +143,7 @@ class RadarSafetyFilter:
         points = self._obstacle_points(defender_obs)
         latched = bool(self.latch_steering and self._latched_turn_sign != 0.0)
         low_speed_latch = bool(latched and speed < 0.25 * max_speed)
-        # A zero-speed recurrent-policy step must not erase the previous escape
-        # direction, but a normally moving policy may leave or reverse the latch.
-        planning_speed = float(max(speed, 0.9 * max_speed)) if low_speed_latch else float(speed)
+        planning_speed = float(speed)
         raw_clearance = self._rollout_clearance(points, turn, planning_speed)
         raw_immediate_clearance = self._rollout_clearance(points, turn, planning_speed, steps=1)
         diagnostics: Dict[str, object] = {
@@ -166,14 +164,16 @@ class RadarSafetyFilter:
             and raw_immediate_clearance > self.immediate_clearance_radius
         )
         if raw_is_safe:
-            self._latched_turn_sign = 0.0
+            # Preserve only the previous side preference across recurrent
+            # low-speed pulses.  The actually safe policy action still passes
+            # through unchanged; the latch may only break a later steering tie.
+            if not low_speed_latch:
+                self._latched_turn_sign = 0.0
+            diagnostics["latched_turn_sign"] = float(self._latched_turn_sign)
             return action, diagnostics
 
         candidate_turns = np.linspace(-max_turn, max_turn, self.turn_samples, dtype=np.float64)
         candidate_turns = np.unique(np.append(candidate_turns, turn))
-        if low_speed_latch:
-            same_side = candidate_turns * self._latched_turn_sign > 0.0
-            candidate_turns = candidate_turns[same_side]
         candidates = [
             (
                 self._rollout_clearance(points, float(candidate), planning_speed),
@@ -190,23 +190,35 @@ class RadarSafetyFilter:
             if self.selection_mode == "max_clearance":
                 clearance, immediate_clearance, selected_turn = max(
                     safe,
-                    key=lambda item: (item[0], item[1], -abs(item[2] - turn)),
+                    key=lambda item: (
+                        item[0],
+                        item[1],
+                        -abs(item[2] - turn),
+                        item[2] * self._latched_turn_sign,
+                    ),
                 )
             else:
                 clearance, immediate_clearance, selected_turn = min(
                     safe,
-                    key=lambda item: (abs(item[2] - turn), -item[0], -item[1]),
+                    key=lambda item: (
+                        abs(item[2] - turn),
+                        0 if item[2] * self._latched_turn_sign > 0.0 else 1,
+                        -item[0],
+                        -item[1],
+                    ),
                 )
             mode = "steer"
         else:
             clearance, immediate_clearance, selected_turn = max(
                 candidates,
-                key=lambda item: (item[1], item[0], -abs(item[2] - turn)),
+                key=lambda item: (
+                    item[1],
+                    item[0],
+                    -abs(item[2] - turn),
+                    item[2] * self._latched_turn_sign,
+                ),
             )
             mode = "unavoidable"
-
-        if low_speed_latch:
-            mode = "latched_steer"
         if self.latch_steering and selected_turn != 0.0:
             self._latched_turn_sign = float(np.sign(selected_turn))
 
