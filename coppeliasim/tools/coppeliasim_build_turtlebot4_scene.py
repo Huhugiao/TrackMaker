@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jitter-px", type=int, default=15)
     parser.add_argument("--robot-radius-px", type=float, default=float(getattr(map_config, "agent_radius", 8.0)))
     parser.add_argument("--target-radius-px", type=float, default=float(getattr(map_config, "target_radius", 16.0)))
-    parser.add_argument("--obstacle-height", type=float, default=0.22)
+    parser.add_argument("--obstacle-height", type=float, default=0.5)
     parser.add_argument("--turtlebot4-xacro", type=Path, default=DEFAULT_TURTLEBOT4_XACRO)
     parser.add_argument("--turtlebot4-urdf", type=Path, default=DEFAULT_TURTLEBOT4_URDF)
     parser.add_argument("--ros-share", type=Path, default=DEFAULT_ROS_SHARE)
@@ -94,7 +94,7 @@ def build_turtlebot4_manifest(
         {
             "robot_source": "official_turtlebot4",
             "robot_model": "official_turtlebot4_urdf",
-            "motion_model": "kinematic_velocity_base",
+            "motion_model": "official_turtlebot4_wheel_velocity",
             "scale_m_per_px": float(scale_m_per_px),
             "sim_step_dt": float(meta.get("sim_step_dt", DEFAULT_SIM_STEP_DT)),
             "turtlebot4": spec.to_manifest(),
@@ -136,7 +136,7 @@ def build_turtlebot4_manifest(
             "width_px": int(width_px),
             "height_px": int(height_px),
             "scale_m_per_px": float(scale_m_per_px),
-            "obstacle_height_m": float(meta.get("obstacle_height_m", 0.22)),
+            "obstacle_height_m": float(meta.get("obstacle_height_m", 0.5)),
         },
         "meta": meta_out,
         "obstacles": [dict(obs) for obs in obstacles],
@@ -268,6 +268,8 @@ local function addObstacle(obs, index)
         local dy = obs.y2 - obs.y1
         local h = makeCuboid(alias, {{(obs.x1 + obs.x2) * 0.5, (obs.y1 + obs.y2) * 0.5}}, {{math.sqrt(dx * dx + dy * dy), obs.thick or 8.0}}, obstacleHeight, {{0.22, 0.24, 0.29}}, true, true)
         sim.setObjectOrientation(h, -1, {{0.0, 0.0, -math.atan(dy, dx)}})
+        makeCylinder(alias .. '_cap_1', {{obs.x1, obs.y1}}, (obs.thick or 8.0) * 0.5, obstacleHeight, {{0.22, 0.24, 0.29}}, true, true)
+        makeCylinder(alias .. '_cap_2', {{obs.x2, obs.y2}}, (obs.thick or 8.0) * 0.5, obstacleHeight, {{0.22, 0.24, 0.29}}, true, true)
     end
 end
 
@@ -512,9 +514,9 @@ local function importRobot(role, entity)
     step(role .. ': alias training handles', function()
         aliasTrainingHandles(root, role)
     end)
-    step(role .. ': configure imported official shapes', function()
-        configureImportedOfficialShapes(root)
-    end)
+    -- Preserve the URDF importer's dynamic/respondable flags. Making every
+    -- imported shape static turns the TurtleBot4 into a visual-only model and
+    -- makes wheel velocity commands physically inert.
     local p = pxToWorld(entity.center_px[1], entity.center_px[2])
     sim.setObjectPosition(root, -1, {{p[1], p[2], 0.0}})
     sim.setObjectOrientation(root, -1, {{0.0, 0.0, -math.rad(entity.theta_deg or 0.0)}})
@@ -580,6 +582,7 @@ def main() -> int:
             "defender_max_turn_rad_per_s": math.radians(float(meta["defender_max_turn_deg_per_step"])) / float(args.sim_step_dt),
             "attacker_max_turn_rad_per_s": math.radians(float(meta["attacker_max_turn_deg_per_step"])) / float(args.sim_step_dt),
             "episode_len": int(map_config.EnvParameters.EPISODE_LEN) if hasattr(map_config, "EnvParameters") else 449,
+            "collision_proxy_enabled": False,
         }
     )
     obstacle_aliases = [f"TrackMaker_turtlebot4_obstacle_{idx:03d}" for idx, _obs in enumerate(obstacles, start=1)]

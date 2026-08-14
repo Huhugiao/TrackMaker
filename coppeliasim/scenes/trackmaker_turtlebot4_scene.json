@@ -3,7 +3,7 @@
     "width_px": 640,
     "height_px": 640,
     "scale_m_per_px": 0.01,
-    "obstacle_height_m": 0.22
+    "obstacle_height_m": 0.5
   },
   "meta": {
     "density": "dense",
@@ -27,11 +27,12 @@
     "defender_max_turn_rad_per_s": 2.0943951023931953,
     "attacker_max_turn_rad_per_s": 4.1887902047863905,
     "robot_source": "official_turtlebot4",
-    "obstacle_height_m": 0.22,
+    "obstacle_height_m": 0.5,
     "sensor_range_m": 3.0,
     "episode_len": 449,
+    "collision_proxy_enabled": false,
     "robot_model": "official_turtlebot4_urdf",
-    "motion_model": "kinematic_velocity_base",
+    "motion_model": "official_turtlebot4_wheel_velocity",
     "turtlebot4": {
       "base_link": "base_link",
       "left_wheel_joint": "left_wheel_joint",
@@ -41,7 +42,6 @@
       "wheel_radius_m": 0.035750000000000004,
       "wheel_separation_m": 0.233
     },
-    "collision_proxy_enabled": true,
     "collision_proxy_radius_m": 0.18,
     "collision_proxy_height_m": 0.11
   },

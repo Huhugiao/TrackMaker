@@ -5,14 +5,15 @@ from __future__ import annotations
 import math
 from pathlib import Path
 import sys
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
 from configs.map_config import EnvParameters
 from skill.util import build_critic_observation as _build_critic_observation
 
-from .track_env import CoppeliaTrackEnv, VelocityCommand
+if TYPE_CHECKING:
+    from .track_env import CoppeliaTrackEnv, VelocityCommand
 
 
 RADAR_DIM = 64
@@ -79,6 +80,88 @@ def build_critic_observation(actor_obs: np.ndarray, privileged_obs: np.ndarray) 
     return critic
 
 
+def build_actor_observation(
+    state: dict[str, Any],
+    *,
+    width: float,
+    height: float,
+    pixel_size: float,
+    defender_radar: np.ndarray,
+    assume_attacker_visible: bool = True,
+    last_observed_attacker: dict[str, float] | None = None,
+    steps_since_observed: int = 0,
+) -> np.ndarray:
+    """Build the frozen Defender actor input from map-frame game state."""
+
+    defender = _require_agent(state, "defender")
+    attacker = _require_agent(state, "attacker")
+    target = _require_agent(state, "target")
+    radar = np.asarray(defender_radar, dtype=np.float32).reshape(-1)
+    if radar.shape != (RADAR_DIM,):
+        raise ValueError(f"defender_radar must have shape ({RADAR_DIM},), got {radar.shape}")
+
+    obs = np.zeros(ACTOR_OBS_DIM, dtype=np.float32)
+    map_diagonal = float(math.hypot(float(width), float(height)))
+    defender_center = _center(defender, pixel_size)
+
+    fov_half = float(getattr(EnvParameters, "FOV_ANGLE", 360.0)) * 0.5
+    observed_attacker = attacker if assume_attacker_visible else last_observed_attacker
+    if observed_attacker is None:
+        obs[0:3] = (1.0, 0.0, 1.0)
+    else:
+        attacker_center = _center(observed_attacker, pixel_size)
+        attacker_rel = attacker_center - defender_center
+        attacker_dist = float(np.linalg.norm(attacker_rel))
+        attacker_bearing_abs = math.degrees(math.atan2(float(attacker_rel[1]), float(attacker_rel[0])))
+        attacker_bearing = normalize_angle_deg(attacker_bearing_abs - float(defender["theta"]))
+        obs[0] = float(np.clip((attacker_dist / max(map_diagonal, 1e-6)) * 2.0 - 1.0, -1.0, 1.0))
+        obs[1] = float(np.clip(attacker_bearing / 180.0, -1.0, 1.0))
+        fov_edge = min(abs(attacker_bearing + fov_half), abs(attacker_bearing - fov_half))
+        obs[2] = float(np.clip((fov_edge / max(fov_half, 1e-6)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[3] = 1.0 if assume_attacker_visible else 0.0
+    max_unobserved = max(1.0, float(getattr(EnvParameters, "MAX_UNOBSERVED_STEPS", 80)))
+    obs[4] = float(np.clip((max(0, int(steps_since_observed)) / max_unobserved) * 2.0 - 1.0, -1.0, 1.0))
+
+    target_center = _center(target, pixel_size)
+    target_rel = target_center - defender_center
+    target_dist = float(np.linalg.norm(target_rel))
+    target_bearing_abs = math.degrees(math.atan2(float(target_rel[1]), float(target_rel[0])))
+    target_bearing = normalize_angle_deg(target_bearing_abs - float(defender["theta"]))
+    obs[5] = float(np.clip((target_dist / max(map_diagonal, 1e-6)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[6] = float(np.clip(target_bearing / 180.0, -1.0, 1.0))
+    obs[7:] = radar
+    return np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0).astype(np.float32)
+
+
+def build_privileged_observation(
+    state: dict[str, Any],
+    *,
+    width: float,
+    height: float,
+    attacker_radar: np.ndarray,
+) -> np.ndarray:
+    """Build the shared 72-D privileged state used by Defender and Attacker."""
+
+    defender = _require_agent(state, "defender")
+    attacker = _require_agent(state, "attacker")
+    target = _require_agent(state, "target")
+    radar = np.asarray(attacker_radar, dtype=np.float32).reshape(-1)
+    if radar.shape != (RADAR_DIM,):
+        raise ValueError(f"attacker_radar must have shape ({RADAR_DIM},), got {radar.shape}")
+
+    obs = np.zeros(PRIVILEGED_OBS_DIM, dtype=np.float32)
+    obs[0] = float(np.clip((attacker["x"] / max(float(width), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[1] = float(np.clip((attacker["y"] / max(float(height), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[2] = float(np.clip((attacker["theta"] / 180.0) - 1.0, -1.0, 1.0))
+    obs[3] = float(np.clip((defender["x"] / max(float(width), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[4] = float(np.clip((defender["y"] / max(float(height), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[5] = float(np.clip((defender["theta"] / 180.0) - 1.0, -1.0, 1.0))
+    obs[6] = float(np.clip((target["x"] / max(float(width), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[7] = float(np.clip((target["y"] / max(float(height), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
+    obs[8:] = radar
+    return np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0).astype(np.float32)
+
+
 def _install_numpy_core_pickle_alias() -> None:
     """Allow NumPy-2 pickles to load in NumPy-1 environments."""
     if not hasattr(np, "core"):
@@ -115,53 +198,24 @@ class CoppeliaSkillObservationProvider:
     def actor_observation(self, transition_or_state: dict[str, Any]) -> np.ndarray:
         state = _state_from_transition(transition_or_state)
         defender = _require_agent(state, "defender")
-        attacker = _require_agent(state, "attacker")
-        target = _require_agent(state, "target")
-
-        obs = np.zeros(ACTOR_OBS_DIM, dtype=np.float32)
-        map_diagonal = float(math.hypot(float(self.env.width), float(self.env.height)))
-        defender_center = _center(defender, self.env.pixel_size)
-
-        attacker_center = _center(attacker, self.env.pixel_size)
-        attacker_rel = attacker_center - defender_center
-        attacker_dist = float(np.linalg.norm(attacker_rel))
-        attacker_bearing_abs = math.degrees(math.atan2(float(attacker_rel[1]), float(attacker_rel[0])))
-        attacker_bearing = normalize_angle_deg(attacker_bearing_abs - float(defender["theta"]))
-        obs[0] = float(np.clip((attacker_dist / max(map_diagonal, 1e-6)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[1] = float(np.clip(attacker_bearing / 180.0, -1.0, 1.0))
-        fov_half = float(getattr(EnvParameters, "FOV_ANGLE", 360.0)) * 0.5
-        fov_edge = min(abs(attacker_bearing + fov_half), abs(attacker_bearing - fov_half))
-        obs[2] = float(np.clip((fov_edge / max(fov_half, 1e-6)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[3] = 1.0 if self.assume_attacker_visible else 0.0
-        obs[4] = -1.0
-
-        target_center = _center(target, self.env.pixel_size)
-        target_rel = target_center - defender_center
-        target_dist = float(np.linalg.norm(target_rel))
-        target_bearing_abs = math.degrees(math.atan2(float(target_rel[1]), float(target_rel[0])))
-        target_bearing = normalize_angle_deg(target_bearing_abs - float(defender["theta"]))
-        obs[5] = float(np.clip((target_dist / max(map_diagonal, 1e-6)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[6] = float(np.clip(target_bearing / 180.0, -1.0, 1.0))
-        obs[7:] = self._radar(defender)
-        return np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0).astype(np.float32)
+        return build_actor_observation(
+            state,
+            width=self.env.width,
+            height=self.env.height,
+            pixel_size=self.env.pixel_size,
+            defender_radar=self._radar(defender),
+            assume_attacker_visible=self.assume_attacker_visible,
+        )
 
     def privileged_observation(self, transition_or_state: dict[str, Any]) -> np.ndarray:
         state = _state_from_transition(transition_or_state)
-        defender = _require_agent(state, "defender")
         attacker = _require_agent(state, "attacker")
-        target = _require_agent(state, "target")
-
-        obs = np.zeros(PRIVILEGED_OBS_DIM, dtype=np.float32)
-        obs[0] = float(np.clip((attacker["x"] / max(float(self.env.width), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[1] = float(np.clip((attacker["y"] / max(float(self.env.height), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[2] = float(np.clip((attacker["theta"] / 180.0) - 1.0, -1.0, 1.0))
-        obs[3] = float(np.clip((defender["x"] / max(float(self.env.width), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[4] = float(np.clip((defender["y"] / max(float(self.env.height), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[5] = float(np.clip((defender["theta"] / 180.0) - 1.0, -1.0, 1.0))
-        obs[6] = float(np.clip((target["x"] / max(float(self.env.width), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[7] = float(np.clip((target["y"] / max(float(self.env.height), 1.0)) * 2.0 - 1.0, -1.0, 1.0))
-        obs[8:] = self._radar(attacker)
-        return np.nan_to_num(obs, nan=0.0, posinf=1.0, neginf=-1.0).astype(np.float32)
+        return build_privileged_observation(
+            state,
+            width=self.env.width,
+            height=self.env.height,
+            attacker_radar=self._radar(attacker),
+        )
 
     def _radar(self, agent: dict[str, float]) -> np.ndarray:
         if self.radar_fn is not None:
@@ -198,6 +252,10 @@ class NormalizedCmdVelAdapter:
         max_v: float,
         max_w: float,
     ) -> VelocityCommand:
+        # Keep deployment-only observation imports independent from the
+        # optional Coppelia ZMQ/Gym environment dependency tree.
+        from .track_env import VelocityCommand
+
         arr = np.asarray(action, dtype=np.float32).reshape(-1)
         turn_norm = float(arr[0]) if arr.size >= 1 else 0.0
         speed_norm = float(arr[1]) if arr.size >= 2 else 0.0

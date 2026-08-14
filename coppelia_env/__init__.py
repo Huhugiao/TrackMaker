@@ -1,4 +1,4 @@
-"""CoppeliaSim-native TrackMaker environment interfaces."""
+"""CoppeliaSim-native TrackMaker interfaces with lazy optional imports."""
 
 from .skill_adapter import (
     CoppeliaSkillObservationProvider,
@@ -7,7 +7,15 @@ from .skill_adapter import (
     compute_gae,
     load_skill_model,
 )
-from .track_env import CoppeliaTrackEnv, VelocityCommand
+
+
+def __getattr__(name):
+    """Avoid loading Gym/Coppelia dependencies in the ROS policy process."""
+    if name in {"CoppeliaTrackEnv", "VelocityCommand"}:
+        from .track_env import CoppeliaTrackEnv, VelocityCommand
+
+        return {"CoppeliaTrackEnv": CoppeliaTrackEnv, "VelocityCommand": VelocityCommand}[name]
+    raise AttributeError(name)
 
 __all__ = [
     "CoppeliaSkillObservationProvider",
