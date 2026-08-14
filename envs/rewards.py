@@ -193,10 +193,8 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
     reward = 0.0
     terminated = False
 
-    # Chase shaping remains unchanged from the successful legacy run.  The
-    # full TAD terminal contract is handled here as well: a Target breach is
-    # an immediate Defender loss, rather than a transition that can continue
-    # and later be mislabelled as a timeout.
+    # Match the successful legacy Chase contract: Target contact is irrelevant
+    # to pure pursuit rollout and formal TAD evaluation handles it separately.
     reward -= 0.08
 
     # 计算defender到attacker的距离
@@ -228,11 +226,6 @@ def reward_calculate_chase(defender, attacker, target, prev_defender=None, prev_
         info['reason'] = 'defender_caught_attacker'
         info['win'] = True
         reward += 20.0
-    elif attacker_captured:
-        terminated = True
-        info['reason'] = 'attacker_caught_target'
-        info['win'] = False
-        reward -= float(getattr(map_config, 'success_reward', 20.0))
     elif defender_collision:
         terminated = True
         reward -= 10.0

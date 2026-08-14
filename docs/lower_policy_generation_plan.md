@@ -1,6 +1,6 @@
 # 下层攻防策略生成计划
 
-最后更新：2026-08-12
+最后更新：2026-08-14
 
 ## 当前研究范围
 
@@ -64,6 +64,19 @@ legacy MLP Protect 与当前 frozen6 Protect 分别做 `raw/radar_steer` 交叉�
 `models/defender_protect_mlp_ctde_repro_20260526/final_model.pth`。规则策略只能用于环境诊断，
 不能进入正式 Defender pool。
 
+### Chase 训练与评测终局契约
+
+Chase 的 PPO rollout 保持 2026-05 active recurrent Chase 的纯追捕语义：Attacker 接触 Target
+不终止 episode，也不产生 Target breach 终局惩罚；只有 Defender 捕获 Attacker、Defender
+碰撞或达到 449-step 上限才结束。超时记为 `timeout_task_failed`，不能作为 Chase 抓捕成功。
+
+固定种子开发评测、checkpoint 选择和 holdout 评测必须切换到标准 TAD 终局：Attacker 接触
+Target 立即结束并记为 `attacker_caught_target`；Defender capture、timeout、Target breach 和
+`defender_collision` 分开统计，collision 仍为 draw。`run_config.json` 必须显式记录训练
+`reward_mode=chase`、`target_breach=ignored_non_terminal`，以及评测
+`evaluation_reward_mode=standard`、`terminal_contract=standard_tad`。不得用训练 rollout 的 Chase
+终局口径生成正式 `target_success_rate` 或选择 checkpoint。
+
 ### Defender 本地雷达安全层
 
 `envs/defender_radar_safety.py` 提供套在底层网络外的恒速转向投影。它只读取 Defender actor
@@ -88,11 +101,10 @@ radar_steer`。早期 seeds `286300..286359` 被连续用于参数选择，且�
 - 总体改善不能抵消 paired regression。当前冻结 checkpoint 不允许把 radar-steer 当作无损默认
   执行层，也不能宣称它保证零碰撞。
 
-下一轮 Protect 与 Chase 从随机权重重新训练时，在 rollout 与评测环境中同时设置
-`DEFENDER_RADAR_SAFETY=1`，让策略适应实际执行动作。训练 run config 必须保留安全层参数；raw
-评测仍单独保留。Protect/Chase 已分别通过 32-step、单 PPO update 的随机初始化 smoke，只证明
-训练链可运行，不构成性能证据。禁止用 BC、DAgger、teacher/anchor、KL-to-BC 或旧 checkpoint
-warm-start 消除上述 paired regression。
+安全层训练模式必须在每个 run 启动前固定，不能中途切换。本轮 raw Chase 重训未晋级，
+当前不继续训练新 Chase；若重启 safety execution 训练，必须作为独立 run 并保留 raw 对照。
+Protect/Chase 的 32-step、单 PPO update smoke 只证明训练链可运行，不构成性能证据。禁止用 BC、
+DAgger、teacher/anchor、KL-to-BC 或旧 checkpoint warm-start 消除 paired regression。
 
 旧 controller/env obstacle mask 已从执行、训练和评测入口删除。它读取 simulator 全局地图，
 枚举减速候选并允许停车，既不满足本地观测约束，也会引入卡死风险；历史 masked 结果仅作审计，

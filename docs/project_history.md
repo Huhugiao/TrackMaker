@@ -1,6 +1,6 @@
 # TrackMaker 项目历史与主线
 
-最后更新：2026-08-12
+最后更新：2026-08-14
 
 本文档只记录需要长期保留的研究结论、正式资产和当前工程方向。详细实验过程由 Git 历史保存，
 失败分支和原始运行数据不长期堆放在主工作树。
@@ -76,6 +76,8 @@
 - D1、A1、A1b 的历史 paired gate 均未形成稳定净提升，固定交替 continuation 已废弃。
 - recurrent Attacker PPO、action shield、multi-style SAC 和四风格 PPO 均未形成可保留的正式策略。
 - pursuer、interceptor、sentinel 与未通过统一复测的新 Chase 不进入正式 Defender pool。
+- 2026-08-13 至 2026-08-14：纯追捕契约下随机初始化的 GRU（`150M` steps）与 MLP
+  （`46.07M` steps 停止）均未超过 active Chase，不晋级；active Chase 保持不变。
 
 ## 保留边界
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import csv
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
@@ -95,6 +95,19 @@ DEFENDER_VARIANTS: Dict[str, DefenderVariant] = {
 }
 
 
+def resolved_defender_variants(
+    chase_checkpoint_override: Optional[str] = None,
+) -> Dict[str, DefenderVariant]:
+    variants = dict(DEFENDER_VARIANTS)
+    if chase_checkpoint_override:
+        variants['chase_skill'] = replace(
+            variants['chase_skill'],
+            role='explicit Chase checkpoint override',
+            chase_checkpoint=str(chase_checkpoint_override),
+        )
+    return variants
+
+
 def _split_csv(value: str) -> Tuple[str, ...]:
     return tuple(token.strip().lower() for token in str(value).split(",") if token.strip())
 
@@ -169,10 +182,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def defender_audit(names: Sequence[str]) -> List[Dict[str, object]]:
+def defender_audit(
+    names: Sequence[str],
+    variants: Optional[Mapping[str, DefenderVariant]] = None,
+) -> List[Dict[str, object]]:
+    variants = dict(variants or DEFENDER_VARIANTS)
     rows = []
     for name in names:
-        spec = DEFENDER_VARIANTS[name]
+        spec = variants[name]
         checkpoints = {}
         for field, relative in (
             ("top", spec.top_checkpoint),
@@ -307,6 +324,7 @@ def run_episode(
             float(safety_action_delta / safety_steps) if safety_steps else 0.0
         ),
         "episode_length": int(env.step_count),
+        "capture_step": int(env.step_count) if outcome == "defender_capture" else None,
         "attacker_collision_events": int(collision_events),
         "attacker_path_length": attacker_path,
         "defender_path_length": defender_path,
@@ -357,6 +375,120 @@ def summarize(rows: Sequence[Mapping[str, object]]) -> Dict[str, object]:
         sum(bool(row.get("attacker_collision_events", 0)) for row in rows) / total if total else 0.0
     )
     return summary
+
+
+def protect_chase_union_analysis(
+    records: Sequence[Mapping[str, object]],
+    high_margin_threshold: float = 20.0,
+) -> Tuple[List[Dict[str, object]], List[Dict[str, object]]]:
+    """Build paired Protect/Chase union metrics and attributed common failures."""
+    keyed = {
+        (str(row["defender"]), str(row["attacker"]), int(row["seed"])): row
+        for row in records
+    }
+    paired = []
+    protect_keys = sorted(
+        (attacker, seed)
+        for defender, attacker, seed in keyed
+        if defender == "protect_skill"
+    )
+    for attacker, seed in protect_keys:
+        protect = keyed[("protect_skill", attacker, seed)]
+        chase = keyed.get(("chase_skill", attacker, seed))
+        if chase is None:
+            continue
+        protect_ok = bool(protect.get("defender_success", False))
+        chase_ok = bool(chase.get("defender_success", False))
+        collision_free = not (
+            bool(protect.get("defender_collision", False))
+            or bool(chase.get("defender_collision", False))
+        )
+        margin = min(
+            float(protect.get("initial_target_time_margin", 0.0)),
+            float(chase.get("initial_target_time_margin", 0.0)),
+        )
+        high_margin = margin >= float(high_margin_threshold)
+        common_failure = not protect_ok and not chase_ok
+        failure_class = None
+        if common_failure:
+            if not high_margin:
+                failure_class = "low_margin_spawn"
+            elif not collision_free:
+                failure_class = "collision_control"
+            else:
+                failure_class = "high_margin_strategy_failure"
+        paired.append({
+            "attacker": attacker,
+            "seed": int(seed),
+            "initial_target_time_margin": margin,
+            "high_margin_threshold": float(high_margin_threshold),
+            "high_margin": high_margin,
+            "collision_free": collision_free,
+            "protect_success": protect_ok,
+            "chase_success": chase_ok,
+            "union_success": protect_ok or chase_ok,
+            "protect_only_success": protect_ok and not chase_ok,
+            "chase_only_success": chase_ok and not protect_ok,
+            "common_failure": common_failure,
+            "failure_class": failure_class,
+            "protect_reason": protect.get("reason"),
+            "chase_reason": chase.get("reason"),
+            "protect_radar_intervention_rate": float(
+                protect.get("radar_steering_intervention_rate", 0.0)
+            ),
+            "chase_radar_intervention_rate": float(
+                chase.get("radar_steering_intervention_rate", 0.0)
+            ),
+        })
+
+    def _summary(scope: str, rows: Sequence[Mapping[str, object]]) -> Dict[str, object]:
+        total = len(rows)
+        high_margin_cf = [
+            row for row in rows
+            if bool(row["high_margin"]) and bool(row["collision_free"])
+        ]
+
+        def _count(key: str, selected=rows) -> int:
+            return sum(bool(row.get(key, False)) for row in selected)
+
+        high_total = len(high_margin_cf)
+        return {
+            "scope": scope,
+            "pairs": total,
+            "protect_success_count": _count("protect_success"),
+            "chase_success_count": _count("chase_success"),
+            "union_success_count": _count("union_success"),
+            "union_success_rate": _count("union_success") / total if total else 0.0,
+            "protect_only_success_count": _count("protect_only_success"),
+            "chase_only_success_count": _count("chase_only_success"),
+            "common_failure_count": _count("common_failure"),
+            "low_margin_common_failure_count": sum(
+                row.get("failure_class") == "low_margin_spawn" for row in rows
+            ),
+            "collision_control_common_failure_count": sum(
+                row.get("failure_class") == "collision_control" for row in rows
+            ),
+            "high_margin_strategy_failure_count": sum(
+                row.get("failure_class") == "high_margin_strategy_failure" for row in rows
+            ),
+            "high_margin_collision_free_pairs": high_total,
+            "high_margin_collision_free_union_success_count": _count(
+                "union_success", high_margin_cf
+            ),
+            "high_margin_collision_free_union_success_rate": (
+                _count("union_success", high_margin_cf) / high_total if high_total else 0.0
+            ),
+            "high_margin_collision_free_common_failure_count": (
+                _count("common_failure", high_margin_cf)
+            ),
+        }
+
+    attacker_names = sorted({str(row["attacker"]) for row in paired})
+    summaries = [_summary("all_attackers", paired)] + [
+        _summary(attacker, [row for row in paired if row["attacker"] == attacker])
+        for attacker in attacker_names
+    ]
+    return summaries, paired
 
 
 def _exact_discordant_p(left: int, right: int) -> float:
@@ -774,6 +906,7 @@ def run_matrix(
     seeds: Sequence[int],
     safety_mode: str = "raw",
     radar_safety_params: Optional[Mapping[str, object]] = None,
+    chase_checkpoint_override: Optional[str] = None,
 ) -> Dict[str, object]:
     safety_mode = str(safety_mode).strip().lower()
     if safety_mode not in {"raw", "radar_steer"}:
@@ -792,7 +925,8 @@ def run_matrix(
         raise FileExistsError(f"Output directory is non-empty: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    audit = defender_audit(defenders)
+    variants = resolved_defender_variants(chase_checkpoint_override)
+    audit = defender_audit(defenders, variants=variants)
     missing = [
         f"{row['name']}:{key}"
         for row in audit
@@ -805,6 +939,7 @@ def run_matrix(
         "git_head": _git_head(),
         "attackers": list(attackers),
         "defenders": list(defenders),
+        "chase_checkpoint_override": chase_checkpoint_override,
         "seeds": list(seeds),
         "speed_contract": {"attacker": 2.0, "defender": 2.6},
         "outcome_contract": {
@@ -849,7 +984,7 @@ def run_matrix(
     }
     records = []
     for defender_name in defenders:
-        spec = DEFENDER_VARIANTS[defender_name]
+        spec = variants[defender_name]
         env = AttackerEnv(
             defender_strategy=spec.env_strategy,
             defender_strategy_params=_controller_config(spec),
@@ -892,7 +1027,7 @@ def run_matrix(
             ]
             summary_rows.append({
                 "defender": defender_name,
-                "defender_role": DEFENDER_VARIANTS[defender_name].role,
+                "defender_role": variants[defender_name].role,
                 "attacker": attacker_name,
                 **summarize(selected),
             })
@@ -922,6 +1057,11 @@ def run_matrix(
             if scoped:
                 overall_rows.append({"defender": defender_name, "scope": scope, **summarize(scoped)})
     _write_csv(output_dir / "defender_overall.csv", overall_rows)
+
+    if {"protect_skill", "chase_skill"}.issubset(defenders):
+        union_rows, paired_union_rows = protect_chase_union_analysis(records)
+        _write_csv(output_dir / "protect_chase_union.csv", union_rows)
+        _write_jsonl(output_dir / "protect_chase_paired_episodes.jsonl", paired_union_rows)
 
     hrl_comparators = tuple(
         name for name in ("protect_skill", "chase_skill")
@@ -999,6 +1139,10 @@ def main() -> None:
     parser.add_argument("--radar-safety-horizon", type=int, default=6)
     parser.add_argument("--radar-safety-turn-samples", type=int, default=33)
     parser.add_argument(
+        "--chase-checkpoint",
+        help="Explicit checkpoint used by the chase_skill variant.",
+    )
+    parser.add_argument(
         "--radar-safety-selection",
         choices=("closest", "max_clearance"),
         default="closest",
@@ -1026,6 +1170,7 @@ def main() -> None:
             "turn_samples": args.radar_safety_turn_samples,
             "selection_mode": args.radar_safety_selection,
         },
+        chase_checkpoint_override=args.chase_checkpoint,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

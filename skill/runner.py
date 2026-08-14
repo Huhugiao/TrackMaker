@@ -956,18 +956,30 @@ class Runner:
     ) -> Dict:
         perf = {'per_r': [], 'per_episode_len': [], 'win': []}
         outcome_counts = {}
+        episode_records = []
         frames = [] if record_gif else None
         trajectory_data = None  # trajectory data for the first episode (for static plot)
         previous_fixed_attacker_strategy = self.fixed_attacker_strategy
+        previous_reward_mode = self.env.reward_mode
+        evaluation_reward_mode = str(
+            self.env_configs.get('evaluation_reward_mode', '')
+        ).strip().lower()
         if attacker_strategy is not None and str(attacker_strategy).strip():
             self.fixed_attacker_strategy = str(attacker_strategy).strip().lower()
+        if evaluation_reward_mode:
+            self.env.reward_mode = evaluation_reward_mode
         
         try:
             for ep_idx in range(num_episodes):
+                episode_seed = self._resolve_reset_seed(for_eval=True, episode_idx=ep_idx)
                 self._reset(for_eval=True, episode_idx=ep_idx)
                 ep_reward = 0.0
                 ep_len = 0
                 ep_frames = []
+                safety_steps = 0
+                safety_interventions = 0
+                safety_unavoidable = 0
+                safety_action_delta = 0.0
 
                 # Record initial positions for first episode's trajectory plot
                 record_traj = (ep_idx == 0)
@@ -998,6 +1010,12 @@ class Runner:
                     obs, reward, terminated, truncated, info = self.env.step(action, attacker_action)
                     done = terminated or truncated
 
+                    if bool(info.get('defender_radar_safety_enabled', False)):
+                        safety_steps += 1
+                        safety_interventions += int(bool(info.get('defender_radar_safety_intervened', False)))
+                        safety_unavoidable += int(info.get('defender_radar_safety_mode') == 'unavoidable')
+                        safety_action_delta += float(info.get('defender_radar_safety_action_delta', 0.0))
+
                     self.defender_obs, self.attacker_obs = obs
                     self.done = done
                     ep_reward += reward
@@ -1022,7 +1040,31 @@ class Runner:
                 update_perf(one_ep, perf)
                 perf['win'].append(one_ep['win'])
                 terminal_reason = str(info.get('reason', 'unknown')).strip().lower() or 'unknown'
+                is_timeout = any(
+                    token in terminal_reason
+                    for token in ('timeout', 'time_limit', 'max_steps', 'truncated')
+                )
                 outcome_counts[terminal_reason] = outcome_counts.get(terminal_reason, 0) + 1
+                episode_records.append({
+                    'episode_index': int(ep_idx),
+                    'seed': None if episode_seed is None else int(episode_seed),
+                    'reason': terminal_reason,
+                    'target_success': terminal_reason == 'attacker_caught_target',
+                    'defender_capture': terminal_reason == 'defender_caught_attacker',
+                    'timeout': is_timeout,
+                    'defender_collision': terminal_reason in {'defender_collision', 'defender_out'},
+                    'defender_success': terminal_reason == 'defender_caught_attacker' or is_timeout,
+                    'episode_length': int(ep_len),
+                    'radar_steering_intervention_rate': (
+                        float(safety_interventions / safety_steps) if safety_steps else 0.0
+                    ),
+                    'radar_steering_unavoidable_rate': (
+                        float(safety_unavoidable / safety_steps) if safety_steps else 0.0
+                    ),
+                    'radar_steering_action_delta_mean': (
+                        float(safety_action_delta / safety_steps) if safety_steps else 0.0
+                    ),
+                })
 
                 if record_gif and ep_idx == 0 and ep_frames:
                     frames = ep_frames
@@ -1048,6 +1090,7 @@ class Runner:
                     }
         finally:
             self.fixed_attacker_strategy = previous_fixed_attacker_strategy
+            self.env.reward_mode = previous_reward_mode
             for policy_key, learned_policy in self.opponent_policies.items():
                 if str(policy_key).startswith('attacker_learned:'):
                     learned_policy.reset()
@@ -1061,6 +1104,7 @@ class Runner:
                 reason: float(count) / float(total_outcomes)
                 for reason, count in outcome_counts.items()
             },
+            'episodes': episode_records,
             'frames': frames,
             'trajectory_data': trajectory_data,
         }
