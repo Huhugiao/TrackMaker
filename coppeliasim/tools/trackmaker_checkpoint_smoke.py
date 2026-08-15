@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import sys
@@ -37,6 +38,9 @@ def repeated_action(model, actor: np.ndarray, critic: np.ndarray) -> tuple[list[
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
     paths = {
         "top": (DEFAULT_TOP, "hrl_top_dual_gru_raw"),
         "protect": (DEFAULT_PROTECT, "mlp_ctde"),
@@ -74,6 +78,7 @@ def main() -> int:
         "attacker": bool(np.array_equal(attacker_first, attacker_second)),
     }
     report = {
+        "schema_version": "trackmaker.checkpoint_smoke.v1",
         "checkpoints": metadata,
         "actions": {
             "top": top_action,
@@ -83,8 +88,13 @@ def main() -> int:
         },
         "deterministic_after_reset": repeatable,
     }
-    print(json.dumps(report, indent=2))
-    return 0 if all(repeatable.values()) else 2
+    report["passed"] = all(repeatable.values())
+    payload = json.dumps(report, indent=2)
+    print(payload)
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(payload + "\n", encoding="utf-8")
+    return 0 if report["passed"] else 2
 
 
 if __name__ == "__main__":

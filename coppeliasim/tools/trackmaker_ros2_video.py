@@ -28,6 +28,8 @@ class DemoRecorder(Node):
         self.skill = "waiting"
         self.outcome = "running"
         self.outcome_at: float | None = None
+        self.profile: dict = {}
+        self.actuator = {"defender": {}, "attacker": {}}
         self.frames_written = 0
         self.failed = False
         self.camera_logged = False
@@ -68,6 +70,30 @@ class DemoRecorder(Node):
         latched.reliability = ReliabilityPolicy.RELIABLE
         latched.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.create_subscription(String, "/demo/outcome", self._outcome, latched)
+        self.create_subscription(String, "/demo/profile_metadata", self._profile, latched)
+        for role in ("defender", "attacker"):
+            self.create_subscription(
+                String,
+                f"/{role}/actuator_state",
+                lambda message, role=role: self._actuator(role, message),
+                10,
+            )
+
+    def _profile(self, message: String) -> None:
+        try:
+            value = json.loads(message.data)
+        except json.JSONDecodeError:
+            return
+        if isinstance(value, dict):
+            self.profile = value
+
+    def _actuator(self, role: str, message: String) -> None:
+        try:
+            value = json.loads(message.data)
+        except json.JSONDecodeError:
+            return
+        if isinstance(value, dict):
+            self.actuator[role] = value
 
     def _image(self, message: Image) -> None:
         channels = 3
@@ -112,7 +138,7 @@ class DemoRecorder(Node):
         frame = cv2.resize(image, (1920, 1080), interpolation=cv2.INTER_LINEAR)
         elapsed = max(0.0, stamp - (self.episode_started_stamp or stamp))
         overlay = frame.copy()
-        cv2.rectangle(overlay, (24, 20), (735, 190), (18, 18, 18), -1)
+        cv2.rectangle(overlay, (24, 20), (1125, 350), (18, 18, 18), -1)
         cv2.addWeighted(overlay, 0.72, frame, 0.28, 0.0, frame)
         cv2.circle(frame, (55, 58), 13, (225, 125, 45), -1)
         cv2.putText(frame, "Defender", (82, 67), cv2.FONT_HERSHEY_SIMPLEX, 0.85, (255, 255, 255), 2)
@@ -131,6 +157,44 @@ class DemoRecorder(Node):
         )
         color = (90, 220, 255) if self.outcome != "running" else (215, 215, 215)
         cv2.putText(frame, f"Outcome: {self.outcome}", (42, 163), cv2.FONT_HERSHEY_SIMPLEX, 0.82, color, 2)
+        profile_id = str(self.profile.get("profile_id", "profile pending"))
+        provenance = str(self.profile.get("provenance", "unknown"))
+        calibration = str(self.profile.get("calibration_state", "unknown"))
+        cv2.putText(
+            frame,
+            f"Profile: {profile_id}  [{provenance}/{calibration}]",
+            (42, 208),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.60,
+            (225, 225, 225),
+            2,
+        )
+        for row, role in enumerate(("defender", "attacker")):
+            state = self.actuator[role]
+            requested = (float(state.get("requested_linear_mps", 0.0)), float(state.get("requested_angular_radps", 0.0)))
+            filtered = (float(state.get("filtered_linear_mps", 0.0)), float(state.get("filtered_angular_radps", 0.0)))
+            wheels = [float(value) for value in state.get("actual_wheel_radps", [0.0, 0.0])]
+            runtime_robot = self.profile.get("runtime", {}).get("robots", {}).get(role, {})
+            radius = float(runtime_robot.get("wheel_radius_m", 0.0))
+            track = max(float(runtime_robot.get("wheel_separation_m", 1.0)), 1e-9)
+            actual = (0.5 * radius * sum(wheels), radius * (wheels[1] - wheels[0]) / track)
+            contact = state.get("contact", {})
+            text = (
+                f"{role[0].upper()} req v/w={requested[0]:+.3f}/{requested[1]:+.3f}  "
+                f"filt={filtered[0]:+.3f}/{filtered[1]:+.3f}  actual={actual[0]:+.3f}/{actual[1]:+.3f}  "
+                f"wheel={wheels[0]:+.2f}/{wheels[1]:+.2f}  support={contact.get('support_ok', False)} "
+                f"watchdog={state.get('watchdog_active', True)}"
+            )
+            cv2.putText(
+                frame,
+                text,
+                (42, 255 + row * 43),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (245, 245, 245),
+                1,
+                cv2.LINE_AA,
+            )
         try:
             self.ffmpeg.stdin.write(frame.tobytes())
             self.frames_written += 1

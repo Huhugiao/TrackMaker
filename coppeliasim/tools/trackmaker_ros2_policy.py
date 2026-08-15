@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from dataclasses import asdict, replace
 import json
 from pathlib import Path
@@ -29,7 +30,7 @@ from coppelia_env.ros2_deployment import (  # noqa: E402
     TerminalResult,
     VelocityCommand,
     build_policy_observations,
-    inputs_are_fresh,
+    deployment_input_timing,
     normalize_laser_scan,
     normalized_action_to_command,
     quaternion_to_yaw,
@@ -45,7 +46,7 @@ try:
     from rclpy.node import Node
     from rclpy.parameter import Parameter
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-    from sensor_msgs.msg import LaserScan
+    from sensor_msgs.msg import JointState, LaserScan
     from std_msgs.msg import Bool, String
 except ModuleNotFoundError as exc:  # pragma: no cover - exercised in the deployment environment.
     raise SystemExit("Run this tool in the ros2humble environment with rclpy available") from exc
@@ -130,6 +131,7 @@ class TrackMakerPolicyNode(Node):
             automatically_declare_parameters_from_overrides=True,
         )
         self.config = config
+        self.use_sim_time = bool(use_sim_time)
         self.top_model = top_model
         self.bottom_models = bottom_models
         self.attacker_policy = attacker_policy
@@ -144,13 +146,21 @@ class TrackMakerPolicyNode(Node):
         self.poses: dict[str, Pose2D] = {}
         self.radars: dict[str, np.ndarray] = {}
         self.input_stamps: dict[str, float] = {}
+        self.last_input_timing = deployment_input_timing([], now=0.0, config=config)
+        self.wheel_telemetry: dict[str, dict[str, dict[str, Any]]] = {
+            role: {} for role in ("defender", "attacker")
+        }
+        self.actuator_states: dict[str, dict[str, Any]] = {}
+        self.profile_metadata: dict[str, Any] = {}
         self.collisions = {"defender": False, "attacker": False}
         self.commands = {"defender": VelocityCommand(), "attacker": VelocityCommand()}
         self.last_decision_at = 0.0
         self.episode_started_at = time.monotonic()
+        self.episode_started_control_s = self._control_now()
         self.episode_started_sim_s: float | None = None
         self.terminal: TerminalResult | None = None
         self.terminal_at: float | None = None
+        self.terminal_control_at: float | None = None
         self.shutdown_requested = False
         self.records: list[dict[str, Any]] = []
         self.skill_counts = {"protect": 0, "chase": 0}
@@ -166,6 +176,7 @@ class TrackMakerPolicyNode(Node):
         self.outcome_pub = self.create_publisher(String, "/demo/outcome", latched)
         self.skill_pub = self.create_publisher(String, "/demo/selected_skill", 10)
         self.diagnostics_pub = self.create_publisher(DiagnosticArray, "/diagnostics", 10)
+        self.create_subscription(String, "/demo/profile_metadata", self._profile_callback, latched)
 
         for role in ("defender", "attacker", "target"):
             self.create_subscription(
@@ -187,6 +198,24 @@ class TrackMakerPolicyNode(Node):
                 lambda msg, role=role: self._collision_callback(role, msg),
                 10,
             )
+            self.create_subscription(
+                JointState,
+                f"/{role}/joint_targets",
+                lambda msg, role=role: self._joint_callback(role, "target", msg),
+                10,
+            )
+            self.create_subscription(
+                JointState,
+                f"/{role}/joint_states",
+                lambda msg, role=role: self._joint_callback(role, "actual", msg),
+                10,
+            )
+            self.create_subscription(
+                String,
+                f"/{role}/actuator_state",
+                lambda msg, role=role: self._actuator_callback(role, msg),
+                10,
+            )
 
         self.create_timer(1.0 / float(config.decision_hz), self._decision_tick)
         self.create_timer(1.0 / float(config.command_hz), self._command_tick)
@@ -206,9 +235,12 @@ class TrackMakerPolicyNode(Node):
         self.skill_counts = {"protect": 0, "chase": 0}
         self.terminal = None
         self.terminal_at = None
+        self.terminal_control_at = None
         self.last_decision_at = 0.0
         self.episode_started_at = time.monotonic()
+        self.episode_started_control_s = self._control_now()
         self.episode_started_sim_s = None
+        self._logged_ready = False
         self.get_logger().info("episode state and all recurrent policies reset")
 
     def _pose_callback(self, role: str, msg: PoseStamped) -> None:
@@ -248,6 +280,37 @@ class TrackMakerPolicyNode(Node):
     def _collision_callback(self, role: str, msg: Bool) -> None:
         self.collisions[role] = bool(msg.data)
 
+    def _joint_callback(self, role: str, kind: str, msg: JointState) -> None:
+        values = [float(value) for value in msg.velocity]
+        if len(values) != 2 or not all(np.isfinite(value) for value in values):
+            self.last_status = f"invalid_joint_state:{role}:{kind}"
+            return
+        self.wheel_telemetry[role][kind] = {
+            "stamp_s": float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec) * 1e-9,
+            "names": list(msg.name),
+            "velocity_radps": values,
+        }
+
+    def _actuator_callback(self, role: str, msg: String) -> None:
+        try:
+            value = json.loads(msg.data)
+            if not isinstance(value, dict) or value.get("role") != role:
+                raise ValueError("role mismatch")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self.last_status = f"invalid_actuator_state:{role}:{exc}"
+            return
+        self.actuator_states[role] = value
+
+    def _profile_callback(self, msg: String) -> None:
+        try:
+            value = json.loads(msg.data)
+            if not isinstance(value, dict) or not value.get("profile_id") or not value.get("checksum"):
+                raise ValueError("missing profile identity")
+        except (json.JSONDecodeError, ValueError) as exc:
+            self.last_status = f"invalid_profile_metadata:{exc}"
+            return
+        self.profile_metadata = value
+
     def _required_stamps(self) -> list[float]:
         keys = [
             "pose:defender",
@@ -259,21 +322,26 @@ class TrackMakerPolicyNode(Node):
         return [self.input_stamps[key] for key in keys if key in self.input_stamps]
 
     def _inputs_ready(self, now: float) -> bool:
-        if len(self.poses) != 3 or len(self.radars) != 2 or len(self._required_stamps()) != 5:
-            return False
-        return inputs_are_fresh(self._required_stamps(), now, self.config.input_timeout_s)
+        self.last_input_timing = deployment_input_timing(self._required_stamps(), now=now, config=self.config)
+        return len(self.poses) == 3 and len(self.radars) == 2 and self.last_input_timing.fresh
+
+    def _control_now(self) -> float:
+        if self.use_sim_time:
+            return self.get_clock().now().nanoseconds * 1e-9
+        return time.monotonic()
 
     def _decision_tick(self) -> None:
-        now = time.monotonic()
+        control_now = self._control_now()
         simulation_now = self.get_clock().now().nanoseconds * 1e-9
         if self.terminal is not None:
-            if self.terminal_at is not None and now - self.terminal_at >= 0.75:
+            if self.terminal_control_at is not None and control_now - self.terminal_control_at >= 0.75:
                 self.shutdown_requested = True
             return
         if not self._inputs_ready(simulation_now):
             self.commands = {"defender": VelocityCommand(), "attacker": VelocityCommand()}
-            self.last_status = "waiting_or_stale_inputs"
-            if now - self.episode_started_at >= self.config.startup_timeout_s:
+            self.last_status = f"input_{self.last_input_timing.reason}"
+            startup_elapsed = control_now - self.episode_started_control_s
+            if startup_elapsed >= self.config.startup_timeout_s:
                 self._finish(TerminalResult("input_timeout", "draw", 0))
             return
         if not self._logged_ready:
@@ -329,13 +397,13 @@ class TrackMakerPolicyNode(Node):
             defender_collision=self.collisions["defender"],
             attacker_collision=self.collisions["attacker"],
         )
-        self.last_decision_at = now
+        self.last_decision_at = control_now
         self.last_skill = skill_name
         self.skill_counts[skill_name] += 1
         self.skill_pub.publish(String(data=skill_name))
         record = {
             "step": int(self.monitor.step),
-            "elapsed_s": float(now - self.episode_started_at),
+            "elapsed_s": float(time.monotonic() - self.episode_started_at),
             "simulation_elapsed_s": float(simulation_now - self.episode_started_sim_s),
             "poses": {role: _pose_dict(pose) for role, pose in self.poses.items()},
             "selected_skill": skill_name,
@@ -351,6 +419,9 @@ class TrackMakerPolicyNode(Node):
             "attacker_cmd": asdict(attacker_command),
             "defender_collision": bool(self.collisions["defender"]),
             "attacker_collision": bool(self.collisions["attacker"]),
+            "input_timing": asdict(self.last_input_timing),
+            "wheel_telemetry": copy.deepcopy(self.wheel_telemetry),
+            "actuator_state": copy.deepcopy(self.actuator_states),
         }
         self.records.append(record)
 
@@ -362,7 +433,7 @@ class TrackMakerPolicyNode(Node):
             self.last_status = "active"
 
     def _command_tick(self) -> None:
-        now = time.monotonic()
+        now = self._control_now()
         simulation_now = self.get_clock().now().nanoseconds * 1e-9
         decision_fresh = self.last_decision_at > 0.0 and now - self.last_decision_at <= self.config.input_timeout_s
         if self.terminal is not None or not decision_fresh or not self._inputs_ready(simulation_now):
@@ -384,9 +455,19 @@ class TrackMakerPolicyNode(Node):
             KeyValue(key="selected_skill", value=self.last_skill),
             KeyValue(key="controller_env_obstacle_mask", value="off"),
             KeyValue(key="action_shield", value="off"),
-            KeyValue(key="create3_reflexes", value="enabled_external"),
+            KeyValue(
+                key="create3_reflexes",
+                value="disabled_simulation" if self.use_sim_time else "enabled_external",
+            ),
             KeyValue(key="decision_hz", value=str(self.config.decision_hz)),
             KeyValue(key="command_hz", value=str(self.config.command_hz)),
+            KeyValue(key="input_timing_reason", value=self.last_input_timing.reason),
+            KeyValue(key="input_skew_s", value=str(self.last_input_timing.skew_s)),
+            KeyValue(key="input_max_age_s", value=str(self.last_input_timing.max_age_s)),
+            KeyValue(key="max_input_skew_s", value=str(self.config.max_input_skew_s)),
+            KeyValue(key="watchdog_clock", value="/clock" if self.use_sim_time else "steady"),
+            KeyValue(key="profile_id", value=str(self.profile_metadata.get("profile_id", "unavailable"))),
+            KeyValue(key="profile_provenance", value=str(self.profile_metadata.get("provenance", "unavailable"))),
         ]
         msg.status = [status]
         self.diagnostics_pub.publish(msg)
@@ -394,6 +475,7 @@ class TrackMakerPolicyNode(Node):
     def _finish(self, terminal: TerminalResult) -> None:
         self.terminal = terminal
         self.terminal_at = time.monotonic()
+        self.terminal_control_at = self._control_now()
         self.last_status = terminal.reason
         summary = {
             "reason": terminal.reason,
@@ -411,9 +493,10 @@ class TrackMakerPolicyNode(Node):
             },
             "controller_env_obstacle_mask": False,
             "action_shield": False,
-            "create3_reflexes_expected": True,
+            "create3_reflexes_expected": not self.use_sim_time,
             "config": asdict(self.config),
             "checkpoints": self.checkpoint_metadata,
+            "profile_metadata": copy.deepcopy(self.profile_metadata),
             "records": self.records,
         }
         self.output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -442,7 +525,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=PROJECT_ROOT / "coppeliasim/scenes/trackmaker_turtlebot4_scene.json",
+        default=PROJECT_ROOT / "coppeliasim/scenes/trackmaker_turtlebot4_v2_1_scene.json",
     )
     parser.add_argument("--wall-time", action="store_true", help="use wall time instead of CoppeliaSim /clock")
     return parser.parse_args(argv)

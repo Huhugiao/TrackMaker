@@ -464,6 +464,7 @@ class CoppeliaTrackEnv:
             "wheel_velocity",
             "turtlebot4_wheel_velocity",
             "official_turtlebot4_wheel_velocity",
+            "profiled_turtlebot4_wheel_velocity",
         }
 
     def _agent_pose_handle(self, key: str) -> int:

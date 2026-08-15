@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from coppelia_env.digital_twin import InputTiming, evaluate_input_timing
 from coppelia_env.skill_adapter import (
     build_actor_observation,
     build_critic_observation,
@@ -30,6 +31,7 @@ class DeploymentConfig:
     decision_hz: float = 9.0
     command_hz: float = 20.0
     input_timeout_s: float = 0.5
+    max_input_skew_s: float = 0.05
     startup_timeout_s: float = 30.0
     max_steps: int = 449
     defender_max_linear_mps: float = 0.234
@@ -493,10 +495,32 @@ class EpisodeMonitor:
 
 def inputs_are_fresh(stamps: Iterable[float], now: float, timeout_s: float) -> bool:
     values = [float(v) for v in stamps]
-    if not values or not math.isfinite(float(now)) or not all(math.isfinite(v) for v in values):
+    if not values:
         return False
-    timeout = max(0.0, float(timeout_s))
-    return all(0.0 <= float(now) - value <= timeout for value in values)
+    return evaluate_input_timing(
+        values,
+        now=float(now),
+        stale_after_s=float(timeout_s),
+        max_skew_s=math.inf,
+        required_count=len(values),
+    ).fresh
+
+
+def deployment_input_timing(
+    stamps: Iterable[float],
+    *,
+    now: float,
+    config: DeploymentConfig,
+) -> InputTiming:
+    """Evaluate the five synchronized policy inputs in the ROS clock domain."""
+
+    return evaluate_input_timing(
+        stamps,
+        now=float(now),
+        stale_after_s=float(config.input_timeout_s),
+        max_skew_s=float(config.max_input_skew_s),
+        required_count=5,
+    )
 
 
 def validate_checkpoint(spec: CheckpointSpec) -> dict[str, Any]:

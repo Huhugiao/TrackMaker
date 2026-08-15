@@ -1,0 +1,1527 @@
+{
+  "map": {
+    "width_px": 640,
+    "height_px": 640,
+    "scale_m_per_px": 0.01,
+    "obstacle_height_m": 0.5
+  },
+  "meta": {
+    "density": "dense",
+    "obstacle_seed": 20260325,
+    "spawn_seed": 20260326,
+    "jitter_px": 15,
+    "robot_radius_px": 8.0,
+    "target_radius_px": 16.0,
+    "pixel_size_px": 4.0,
+    "capture_radius_px": 20.0,
+    "capture_sector_angle_deg": 30.0,
+    "defender_speed_px_per_step": 2.6,
+    "attacker_speed_px_per_step": 2.0,
+    "defender_max_turn_deg_per_step": 6.0,
+    "attacker_max_turn_deg_per_step": 12.0,
+    "attacker_max_acc_px_per_step": 0.6,
+    "scale_m_per_px": 0.01,
+    "sim_step_dt": 0.05,
+    "defender_speed_m_per_s": 0.234,
+    "attacker_speed_m_per_s": 0.18,
+    "defender_max_turn_rad_per_s": 0.9424777960769379,
+    "attacker_max_turn_rad_per_s": 1.8849555921538759,
+    "robot_source": "official_turtlebot4_visual_plus_equivalent_dynamics",
+    "obstacle_height_m": 0.5,
+    "sensor_range_m": 3.0,
+    "episode_len": 449,
+    "digital_twin_version": "2.1",
+    "profile": {
+      "schema_version": "2.1",
+      "profile_id": "trackmaker_turtlebot4_v2_1_body_twist_prior_20260815",
+      "provenance": "prior",
+      "calibration_state": "uncalibrated",
+      "actuator_response_space": "body_twist",
+      "seed": 20260815,
+      "checksum": "sha256:bec064d6ad82168e9ec4a808ef2afdc685889ae8b15775487d9506cb6c5b8e53"
+    },
+    "profile_path": "coppeliasim/profiles/trackmaker_turtlebot4_v2_1_prior.json",
+    "robot_model": "calibratable_turtlebot4_v2_1",
+    "motion_model": "profiled_turtlebot4_wheel_velocity",
+    "physics_step_dt": 0.005,
+    "collision_proxy_enabled": false,
+    "runtime_teleport_enabled": false,
+    "wheel_drop_enabled": false,
+    "create3_reflex_simulated": false,
+    "visual_mesh_respondable": false,
+    "controller_env_obstacle_mask": false,
+    "action_shield": false
+  },
+  "profile": {
+    "$schema": "trackmaker_digital_twin_profile.schema.json",
+    "schema_version": "2.1",
+    "profile_id": "trackmaker_turtlebot4_v2_1_body_twist_prior_20260815",
+    "provenance": "prior",
+    "calibration_state": "uncalibrated",
+    "seed": 20260815,
+    "checksum": "sha256:bec064d6ad82168e9ec4a808ef2afdc685889ae8b15775487d9506cb6c5b8e53",
+    "source": {
+      "kind": "urdf_and_engineering_prior",
+      "urdf": "coppeliasim/urdf/turtlebot4_standard.coppeliasim.urdf",
+      "urdf_sha256": "f20dca059e205590ec3e750883c5441bf4cb12d80fc3a2165116f7ecbe29633d",
+      "generator": "coppelia_env.digital_twin.build_prior_profile"
+    },
+    "simulation": {
+      "engine": "Bullet",
+      "engine_index": 0,
+      "engine_version": 0,
+      "outer_step_s": 0.05,
+      "physics_step_s": 0.005,
+      "solver_iterations": 100,
+      "gravity_mps2": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "realtime": true
+    },
+    "materials": {
+      "floor": {
+        "friction": 0.85,
+        "restitution": 0.0,
+        "linear_damping": 0.0,
+        "angular_damping": 0.0
+      },
+      "obstacle": {
+        "friction": 0.7,
+        "restitution": 0.0,
+        "linear_damping": 0.0,
+        "angular_damping": 0.0
+      },
+      "chassis": {
+        "friction": 0.55,
+        "restitution": 0.0,
+        "linear_damping": 0.02,
+        "angular_damping": 0.02
+      },
+      "wheel": {
+        "friction": 1.15,
+        "restitution": 0.0,
+        "linear_damping": 0.0,
+        "angular_damping": 0.0
+      },
+      "caster": {
+        "friction": 0.0,
+        "restitution": 0.0,
+        "linear_damping": 0.01,
+        "angular_damping": 0.01
+      }
+    },
+    "robots": {
+      "defender": {
+        "mass_kg": 5.389999999999994,
+        "center_of_mass_m": [
+          0.0038466755992578932,
+          0.00024243599257884978,
+          0.1301172323265308
+        ],
+        "inertia_kg_m2": [
+          0.08731805228448418,
+          -0.00010671396388418156,
+          0.006965573702202735,
+          -0.00010671396388418156,
+          0.07766545613230778,
+          0.0001308080668980475,
+          0.006965573702202735,
+          0.0001308080668980475,
+          0.07377284620990258
+        ],
+        "inertia_frame": "base_link",
+        "wheel_radius_m": 0.035750000000000004,
+        "wheel_separation_m": 0.233,
+        "chassis": {
+          "mass_kg": 4.979999999999994,
+          "center_of_mass_m": [
+            0.0039123657590361535,
+            0.0002623955823293174,
+            0.1375762815742974
+          ],
+          "inertia_kg_m2": [
+            0.07810325741809922,
+            -0.00010662812458169457,
+            0.006963506155576764,
+            -0.00010662812458169457,
+            0.07360655956263612,
+            0.0001405550303215817,
+            0.006963506155576764,
+            0.0001405550303215817,
+            0.06805549234302644
+          ],
+          "aggregated_links": [
+            "base_link",
+            "bumper",
+            "cliff_front_left",
+            "cliff_front_right",
+            "cliff_side_left",
+            "cliff_side_right",
+            "front_left_bottom_weight_block",
+            "front_left_top_weight_block",
+            "front_left_tower_standoff",
+            "front_right_bottom_weight_block",
+            "front_right_top_weight_block",
+            "front_right_tower_standoff",
+            "imu_link",
+            "ir_intensity_front_center_left",
+            "ir_intensity_front_center_right",
+            "ir_intensity_front_left",
+            "ir_intensity_front_right",
+            "ir_intensity_left",
+            "ir_intensity_right",
+            "ir_intensity_side_left",
+            "ir_omni",
+            "mouse",
+            "oakd_camera_bracket",
+            "oakd_imu_frame",
+            "oakd_left_camera_frame",
+            "oakd_left_camera_optical_frame",
+            "oakd_link",
+            "oakd_rgb_camera_frame",
+            "oakd_rgb_camera_optical_frame",
+            "oakd_right_camera_frame",
+            "oakd_right_camera_optical_frame",
+            "rear_left_tower_standoff",
+            "rear_right_tower_standoff",
+            "rplidar_link",
+            "shell_link",
+            "tower_sensor_plate",
+            "wheel_drop_left",
+            "wheel_drop_right"
+          ],
+          "inertia_frame": "base_link"
+        },
+        "caster": {
+          "mass_kg": 0.01,
+          "center_of_mass_m": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inertia_kg_m2": [
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07
+          ],
+          "inertia_frame": "caster_link"
+        },
+        "wheel": {
+          "mass_kg_each": 0.2,
+          "inertia_kg_m2_each": [
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            0.00012780625000000003
+          ],
+          "inertia_frame": "wheel_link"
+        },
+        "geometry": {
+          "nominal_base_z_m": 0.015550000000000005,
+          "base_clearance_m": 0.014750000000000003,
+          "base": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.0492
+            ],
+            "radius_m": 0.164,
+            "height_m": 0.06
+          },
+          "shell": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.19
+            ],
+            "radius_m": 0.14,
+            "height_m": 0.25
+          },
+          "bumper": {
+            "shape": "cuboid",
+            "center_m": [
+              0.105,
+              0.0,
+              0.072
+            ],
+            "size_m": [
+              0.14,
+              0.285,
+              0.065
+            ]
+          },
+          "caster": {
+            "shape": "sphere",
+            "center_m": [
+              0.125,
+              0.0,
+              0.02945
+            ],
+            "radius_m": 0.025,
+            "preload_m": 0.0,
+            "collision_model": "equivalent_front_slider",
+            "mount_model": "passive_spherical_joint",
+            "contact_material": "caster"
+          },
+          "left_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "right_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              -0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "visual_mesh_respondable": false,
+          "wheel_drop_enabled": false,
+          "create3_reflex_simulated": false
+        },
+        "actuator": {
+          "response_space": "body_twist",
+          "fixed_delay_s": 0.02,
+          "uniform_jitter_s": 0.005,
+          "packet_loss_probability": 0.0,
+          "dropout_windows_s": [],
+          "left_gain": 0.96,
+          "right_gain": 0.96,
+          "left_deadband_mps": 0.003,
+          "right_deadband_mps": 0.003,
+          "time_constant_s": 0.08,
+          "acceleration_mps2": 0.05,
+          "braking_mps2": 1.8,
+          "watchdog_timeout_s": 0.5,
+          "target_force_nm": 0.05,
+          "max_linear_mps": 0.234,
+          "max_angular_radps": 0.9424777960769379
+        }
+      },
+      "attacker": {
+        "mass_kg": 5.389999999999994,
+        "center_of_mass_m": [
+          0.0038466755992578932,
+          0.00024243599257884978,
+          0.1301172323265308
+        ],
+        "inertia_kg_m2": [
+          0.08731805228448418,
+          -0.00010671396388418156,
+          0.006965573702202735,
+          -0.00010671396388418156,
+          0.07766545613230778,
+          0.0001308080668980475,
+          0.006965573702202735,
+          0.0001308080668980475,
+          0.07377284620990258
+        ],
+        "inertia_frame": "base_link",
+        "wheel_radius_m": 0.035750000000000004,
+        "wheel_separation_m": 0.233,
+        "chassis": {
+          "mass_kg": 4.979999999999994,
+          "center_of_mass_m": [
+            0.0039123657590361535,
+            0.0002623955823293174,
+            0.1375762815742974
+          ],
+          "inertia_kg_m2": [
+            0.07810325741809922,
+            -0.00010662812458169457,
+            0.006963506155576764,
+            -0.00010662812458169457,
+            0.07360655956263612,
+            0.0001405550303215817,
+            0.006963506155576764,
+            0.0001405550303215817,
+            0.06805549234302644
+          ],
+          "aggregated_links": [
+            "base_link",
+            "bumper",
+            "cliff_front_left",
+            "cliff_front_right",
+            "cliff_side_left",
+            "cliff_side_right",
+            "front_left_bottom_weight_block",
+            "front_left_top_weight_block",
+            "front_left_tower_standoff",
+            "front_right_bottom_weight_block",
+            "front_right_top_weight_block",
+            "front_right_tower_standoff",
+            "imu_link",
+            "ir_intensity_front_center_left",
+            "ir_intensity_front_center_right",
+            "ir_intensity_front_left",
+            "ir_intensity_front_right",
+            "ir_intensity_left",
+            "ir_intensity_right",
+            "ir_intensity_side_left",
+            "ir_omni",
+            "mouse",
+            "oakd_camera_bracket",
+            "oakd_imu_frame",
+            "oakd_left_camera_frame",
+            "oakd_left_camera_optical_frame",
+            "oakd_link",
+            "oakd_rgb_camera_frame",
+            "oakd_rgb_camera_optical_frame",
+            "oakd_right_camera_frame",
+            "oakd_right_camera_optical_frame",
+            "rear_left_tower_standoff",
+            "rear_right_tower_standoff",
+            "rplidar_link",
+            "shell_link",
+            "tower_sensor_plate",
+            "wheel_drop_left",
+            "wheel_drop_right"
+          ],
+          "inertia_frame": "base_link"
+        },
+        "caster": {
+          "mass_kg": 0.01,
+          "center_of_mass_m": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inertia_kg_m2": [
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07
+          ],
+          "inertia_frame": "caster_link"
+        },
+        "wheel": {
+          "mass_kg_each": 0.2,
+          "inertia_kg_m2_each": [
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            0.00012780625000000003
+          ],
+          "inertia_frame": "wheel_link"
+        },
+        "geometry": {
+          "nominal_base_z_m": 0.015550000000000005,
+          "base_clearance_m": 0.014750000000000003,
+          "base": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.0492
+            ],
+            "radius_m": 0.164,
+            "height_m": 0.06
+          },
+          "shell": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.19
+            ],
+            "radius_m": 0.14,
+            "height_m": 0.25
+          },
+          "bumper": {
+            "shape": "cuboid",
+            "center_m": [
+              0.105,
+              0.0,
+              0.072
+            ],
+            "size_m": [
+              0.14,
+              0.285,
+              0.065
+            ]
+          },
+          "caster": {
+            "shape": "sphere",
+            "center_m": [
+              0.125,
+              0.0,
+              0.02945
+            ],
+            "radius_m": 0.025,
+            "preload_m": 0.0,
+            "collision_model": "equivalent_front_slider",
+            "mount_model": "passive_spherical_joint",
+            "contact_material": "caster"
+          },
+          "left_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "right_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              -0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "visual_mesh_respondable": false,
+          "wheel_drop_enabled": false,
+          "create3_reflex_simulated": false
+        },
+        "actuator": {
+          "response_space": "body_twist",
+          "fixed_delay_s": 0.02,
+          "uniform_jitter_s": 0.005,
+          "packet_loss_probability": 0.0,
+          "dropout_windows_s": [],
+          "left_gain": 0.96,
+          "right_gain": 0.96,
+          "left_deadband_mps": 0.003,
+          "right_deadband_mps": 0.003,
+          "time_constant_s": 0.08,
+          "acceleration_mps2": 0.05,
+          "braking_mps2": 1.8,
+          "watchdog_timeout_s": 0.5,
+          "target_force_nm": 0.05,
+          "max_linear_mps": 0.18,
+          "max_angular_radps": 1.8849555921538759
+        }
+      }
+    }
+  },
+  "obstacles": [
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 6,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 634,
+      "w": 640,
+      "h": 6,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 6,
+      "h": 640,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 634,
+      "y": 0,
+      "w": 6,
+      "h": 640,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 48.0,
+      "y": 43.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 183.0,
+      "y1": 45.0,
+      "x2": 183.0,
+      "y2": 105.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 288.0,
+      "y": 40.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 446.0,
+      "y1": 44.0,
+      "x2": 446.0,
+      "y2": 104.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 541.0,
+      "y": 54.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 41.0,
+      "y1": 209.0,
+      "x2": 101.0,
+      "y2": 209.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 180.0,
+      "cy": 208.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 307.0,
+      "y1": 150.0,
+      "x2": 307.0,
+      "y2": 210.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 447.0,
+      "cy": 196.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 552.0,
+      "y1": 196.0,
+      "x2": 612.0,
+      "y2": 196.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 45.0,
+      "y": 314.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 175.0,
+      "y1": 309.0,
+      "x2": 235.0,
+      "y2": 309.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 313.0,
+      "y": 291.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 421.0,
+      "y1": 335.0,
+      "x2": 481.0,
+      "y2": 335.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 565.0,
+      "y": 297.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 44.0,
+      "y1": 453.0,
+      "x2": 104.0,
+      "y2": 453.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 205.0,
+      "cy": 458.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 335.0,
+      "y1": 413.0,
+      "x2": 335.0,
+      "y2": 473.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "circle",
+      "cx": 446.0,
+      "cy": 454.0,
+      "r": 20,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 553.0,
+      "y1": 443.0,
+      "x2": 613.0,
+      "y2": 443.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 47.0,
+      "y": 539.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 199.0,
+      "y1": 544.0,
+      "x2": 199.0,
+      "y2": 604.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 307.0,
+      "y": 536.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "segment",
+      "x1": 456.0,
+      "y1": 546.0,
+      "x2": 456.0,
+      "y2": 606.0,
+      "thick": 10,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    },
+    {
+      "type": "rect",
+      "x": 548.0,
+      "y": 553.0,
+      "w": 40,
+      "h": 40,
+      "color": [
+        70,
+        70,
+        80,
+        255
+      ]
+    }
+  ],
+  "entities": {
+    "defender": {
+      "center_px": [
+        169.2028864872985,
+        235.42778291985337
+      ],
+      "theta_deg": 71.57799966865063
+    },
+    "attacker": {
+      "center_px": [
+        118.14492065686923,
+        389.1736702461188
+      ],
+      "theta_deg": 353.1204858714904
+    },
+    "target": {
+      "center_px": [
+        281.8700238244818,
+        152.25958606400218
+      ],
+      "theta_deg": 0.0
+    }
+  },
+  "objects": {
+    "floor": {
+      "alias": "TrackMaker_turtlebot4_floor"
+    },
+    "target": {
+      "alias": "TrackMaker_target"
+    },
+    "obstacle_001": {
+      "alias": "TrackMaker_turtlebot4_obstacle_001"
+    },
+    "obstacle_002": {
+      "alias": "TrackMaker_turtlebot4_obstacle_002"
+    },
+    "obstacle_003": {
+      "alias": "TrackMaker_turtlebot4_obstacle_003"
+    },
+    "obstacle_004": {
+      "alias": "TrackMaker_turtlebot4_obstacle_004"
+    },
+    "obstacle_005": {
+      "alias": "TrackMaker_turtlebot4_obstacle_005"
+    },
+    "obstacle_006": {
+      "alias": "TrackMaker_turtlebot4_obstacle_006"
+    },
+    "obstacle_007": {
+      "alias": "TrackMaker_turtlebot4_obstacle_007"
+    },
+    "obstacle_008": {
+      "alias": "TrackMaker_turtlebot4_obstacle_008"
+    },
+    "obstacle_009": {
+      "alias": "TrackMaker_turtlebot4_obstacle_009"
+    },
+    "obstacle_010": {
+      "alias": "TrackMaker_turtlebot4_obstacle_010"
+    },
+    "obstacle_011": {
+      "alias": "TrackMaker_turtlebot4_obstacle_011"
+    },
+    "obstacle_012": {
+      "alias": "TrackMaker_turtlebot4_obstacle_012"
+    },
+    "obstacle_013": {
+      "alias": "TrackMaker_turtlebot4_obstacle_013"
+    },
+    "obstacle_014": {
+      "alias": "TrackMaker_turtlebot4_obstacle_014"
+    },
+    "obstacle_015": {
+      "alias": "TrackMaker_turtlebot4_obstacle_015"
+    },
+    "obstacle_016": {
+      "alias": "TrackMaker_turtlebot4_obstacle_016"
+    },
+    "obstacle_017": {
+      "alias": "TrackMaker_turtlebot4_obstacle_017"
+    },
+    "obstacle_018": {
+      "alias": "TrackMaker_turtlebot4_obstacle_018"
+    },
+    "obstacle_019": {
+      "alias": "TrackMaker_turtlebot4_obstacle_019"
+    },
+    "obstacle_020": {
+      "alias": "TrackMaker_turtlebot4_obstacle_020"
+    },
+    "obstacle_021": {
+      "alias": "TrackMaker_turtlebot4_obstacle_021"
+    },
+    "obstacle_022": {
+      "alias": "TrackMaker_turtlebot4_obstacle_022"
+    },
+    "obstacle_023": {
+      "alias": "TrackMaker_turtlebot4_obstacle_023"
+    },
+    "obstacle_024": {
+      "alias": "TrackMaker_turtlebot4_obstacle_024"
+    },
+    "obstacle_025": {
+      "alias": "TrackMaker_turtlebot4_obstacle_025"
+    },
+    "obstacle_026": {
+      "alias": "TrackMaker_turtlebot4_obstacle_026"
+    },
+    "obstacle_027": {
+      "alias": "TrackMaker_turtlebot4_obstacle_027"
+    },
+    "obstacle_028": {
+      "alias": "TrackMaker_turtlebot4_obstacle_028"
+    },
+    "obstacle_029": {
+      "alias": "TrackMaker_turtlebot4_obstacle_029"
+    },
+    "defender": {
+      "alias": "TrackMaker_defender"
+    },
+    "defender_base": {
+      "alias": "TrackMaker_defender_base_link"
+    },
+    "defender_chassis": {
+      "alias": "TrackMaker_defender_chassis"
+    },
+    "defender_caster": {
+      "alias": "TrackMaker_defender_front_caster"
+    },
+    "defender_left_wheel": {
+      "alias": "TrackMaker_defender_left_wheel"
+    },
+    "defender_right_wheel": {
+      "alias": "TrackMaker_defender_right_wheel"
+    },
+    "defender_lidar": {
+      "alias": "TrackMaker_defender_rplidar_sensor"
+    },
+    "attacker": {
+      "alias": "TrackMaker_attacker"
+    },
+    "attacker_base": {
+      "alias": "TrackMaker_attacker_base_link"
+    },
+    "attacker_chassis": {
+      "alias": "TrackMaker_attacker_chassis"
+    },
+    "attacker_caster": {
+      "alias": "TrackMaker_attacker_front_caster"
+    },
+    "attacker_left_wheel": {
+      "alias": "TrackMaker_attacker_left_wheel"
+    },
+    "attacker_right_wheel": {
+      "alias": "TrackMaker_attacker_right_wheel"
+    },
+    "attacker_lidar": {
+      "alias": "TrackMaker_attacker_rplidar_sensor"
+    }
+  },
+  "robots": {
+    "defender": {
+      "root": "TrackMaker_defender",
+      "base_link": "TrackMaker_defender_base_link",
+      "chassis": "TrackMaker_defender_chassis",
+      "caster": "TrackMaker_defender_front_caster",
+      "left_wheel_joint": "TrackMaker_defender_left_wheel_joint",
+      "right_wheel_joint": "TrackMaker_defender_right_wheel_joint",
+      "left_wheel": "TrackMaker_defender_left_wheel",
+      "right_wheel": "TrackMaker_defender_right_wheel",
+      "lidar_link": "TrackMaker_defender_rplidar_link",
+      "lidar_sensor": "TrackMaker_defender_rplidar_sensor",
+      "wheel_radius_m": 0.035750000000000004,
+      "wheel_separation_m": 0.233,
+      "profile": {
+        "mass_kg": 5.389999999999994,
+        "center_of_mass_m": [
+          0.0038466755992578932,
+          0.00024243599257884978,
+          0.1301172323265308
+        ],
+        "inertia_kg_m2": [
+          0.08731805228448418,
+          -0.00010671396388418156,
+          0.006965573702202735,
+          -0.00010671396388418156,
+          0.07766545613230778,
+          0.0001308080668980475,
+          0.006965573702202735,
+          0.0001308080668980475,
+          0.07377284620990258
+        ],
+        "inertia_frame": "base_link",
+        "wheel_radius_m": 0.035750000000000004,
+        "wheel_separation_m": 0.233,
+        "chassis": {
+          "mass_kg": 4.979999999999994,
+          "center_of_mass_m": [
+            0.0039123657590361535,
+            0.0002623955823293174,
+            0.1375762815742974
+          ],
+          "inertia_kg_m2": [
+            0.07810325741809922,
+            -0.00010662812458169457,
+            0.006963506155576764,
+            -0.00010662812458169457,
+            0.07360655956263612,
+            0.0001405550303215817,
+            0.006963506155576764,
+            0.0001405550303215817,
+            0.06805549234302644
+          ],
+          "aggregated_links": [
+            "base_link",
+            "bumper",
+            "cliff_front_left",
+            "cliff_front_right",
+            "cliff_side_left",
+            "cliff_side_right",
+            "front_left_bottom_weight_block",
+            "front_left_top_weight_block",
+            "front_left_tower_standoff",
+            "front_right_bottom_weight_block",
+            "front_right_top_weight_block",
+            "front_right_tower_standoff",
+            "imu_link",
+            "ir_intensity_front_center_left",
+            "ir_intensity_front_center_right",
+            "ir_intensity_front_left",
+            "ir_intensity_front_right",
+            "ir_intensity_left",
+            "ir_intensity_right",
+            "ir_intensity_side_left",
+            "ir_omni",
+            "mouse",
+            "oakd_camera_bracket",
+            "oakd_imu_frame",
+            "oakd_left_camera_frame",
+            "oakd_left_camera_optical_frame",
+            "oakd_link",
+            "oakd_rgb_camera_frame",
+            "oakd_rgb_camera_optical_frame",
+            "oakd_right_camera_frame",
+            "oakd_right_camera_optical_frame",
+            "rear_left_tower_standoff",
+            "rear_right_tower_standoff",
+            "rplidar_link",
+            "shell_link",
+            "tower_sensor_plate",
+            "wheel_drop_left",
+            "wheel_drop_right"
+          ],
+          "inertia_frame": "base_link"
+        },
+        "caster": {
+          "mass_kg": 0.01,
+          "center_of_mass_m": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inertia_kg_m2": [
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07
+          ],
+          "inertia_frame": "caster_link"
+        },
+        "wheel": {
+          "mass_kg_each": 0.2,
+          "inertia_kg_m2_each": [
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            0.00012780625000000003
+          ],
+          "inertia_frame": "wheel_link"
+        },
+        "geometry": {
+          "nominal_base_z_m": 0.015550000000000005,
+          "base_clearance_m": 0.014750000000000003,
+          "base": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.0492
+            ],
+            "radius_m": 0.164,
+            "height_m": 0.06
+          },
+          "shell": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.19
+            ],
+            "radius_m": 0.14,
+            "height_m": 0.25
+          },
+          "bumper": {
+            "shape": "cuboid",
+            "center_m": [
+              0.105,
+              0.0,
+              0.072
+            ],
+            "size_m": [
+              0.14,
+              0.285,
+              0.065
+            ]
+          },
+          "caster": {
+            "shape": "sphere",
+            "center_m": [
+              0.125,
+              0.0,
+              0.02945
+            ],
+            "radius_m": 0.025,
+            "preload_m": 0.0,
+            "collision_model": "equivalent_front_slider",
+            "mount_model": "passive_spherical_joint",
+            "contact_material": "caster"
+          },
+          "left_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "right_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              -0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "visual_mesh_respondable": false,
+          "wheel_drop_enabled": false,
+          "create3_reflex_simulated": false
+        },
+        "actuator": {
+          "response_space": "body_twist",
+          "fixed_delay_s": 0.02,
+          "uniform_jitter_s": 0.005,
+          "packet_loss_probability": 0.0,
+          "dropout_windows_s": [],
+          "left_gain": 0.96,
+          "right_gain": 0.96,
+          "left_deadband_mps": 0.003,
+          "right_deadband_mps": 0.003,
+          "time_constant_s": 0.08,
+          "acceleration_mps2": 0.05,
+          "braking_mps2": 1.8,
+          "watchdog_timeout_s": 0.5,
+          "target_force_nm": 0.05,
+          "max_linear_mps": 0.234,
+          "max_angular_radps": 0.9424777960769379
+        }
+      }
+    },
+    "attacker": {
+      "root": "TrackMaker_attacker",
+      "base_link": "TrackMaker_attacker_base_link",
+      "chassis": "TrackMaker_attacker_chassis",
+      "caster": "TrackMaker_attacker_front_caster",
+      "left_wheel_joint": "TrackMaker_attacker_left_wheel_joint",
+      "right_wheel_joint": "TrackMaker_attacker_right_wheel_joint",
+      "left_wheel": "TrackMaker_attacker_left_wheel",
+      "right_wheel": "TrackMaker_attacker_right_wheel",
+      "lidar_link": "TrackMaker_attacker_rplidar_link",
+      "lidar_sensor": "TrackMaker_attacker_rplidar_sensor",
+      "wheel_radius_m": 0.035750000000000004,
+      "wheel_separation_m": 0.233,
+      "profile": {
+        "mass_kg": 5.389999999999994,
+        "center_of_mass_m": [
+          0.0038466755992578932,
+          0.00024243599257884978,
+          0.1301172323265308
+        ],
+        "inertia_kg_m2": [
+          0.08731805228448418,
+          -0.00010671396388418156,
+          0.006965573702202735,
+          -0.00010671396388418156,
+          0.07766545613230778,
+          0.0001308080668980475,
+          0.006965573702202735,
+          0.0001308080668980475,
+          0.07377284620990258
+        ],
+        "inertia_frame": "base_link",
+        "wheel_radius_m": 0.035750000000000004,
+        "wheel_separation_m": 0.233,
+        "chassis": {
+          "mass_kg": 4.979999999999994,
+          "center_of_mass_m": [
+            0.0039123657590361535,
+            0.0002623955823293174,
+            0.1375762815742974
+          ],
+          "inertia_kg_m2": [
+            0.07810325741809922,
+            -0.00010662812458169457,
+            0.006963506155576764,
+            -0.00010662812458169457,
+            0.07360655956263612,
+            0.0001405550303215817,
+            0.006963506155576764,
+            0.0001405550303215817,
+            0.06805549234302644
+          ],
+          "aggregated_links": [
+            "base_link",
+            "bumper",
+            "cliff_front_left",
+            "cliff_front_right",
+            "cliff_side_left",
+            "cliff_side_right",
+            "front_left_bottom_weight_block",
+            "front_left_top_weight_block",
+            "front_left_tower_standoff",
+            "front_right_bottom_weight_block",
+            "front_right_top_weight_block",
+            "front_right_tower_standoff",
+            "imu_link",
+            "ir_intensity_front_center_left",
+            "ir_intensity_front_center_right",
+            "ir_intensity_front_left",
+            "ir_intensity_front_right",
+            "ir_intensity_left",
+            "ir_intensity_right",
+            "ir_intensity_side_left",
+            "ir_omni",
+            "mouse",
+            "oakd_camera_bracket",
+            "oakd_imu_frame",
+            "oakd_left_camera_frame",
+            "oakd_left_camera_optical_frame",
+            "oakd_link",
+            "oakd_rgb_camera_frame",
+            "oakd_rgb_camera_optical_frame",
+            "oakd_right_camera_frame",
+            "oakd_right_camera_optical_frame",
+            "rear_left_tower_standoff",
+            "rear_right_tower_standoff",
+            "rplidar_link",
+            "shell_link",
+            "tower_sensor_plate",
+            "wheel_drop_left",
+            "wheel_drop_right"
+          ],
+          "inertia_frame": "base_link"
+        },
+        "caster": {
+          "mass_kg": 0.01,
+          "center_of_mass_m": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "inertia_kg_m2": [
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07,
+            0.0,
+            0.0,
+            0.0,
+            4.0000000000000003e-07
+          ],
+          "inertia_frame": "caster_link"
+        },
+        "wheel": {
+          "mass_kg_each": 0.2,
+          "inertia_kg_m2_each": [
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            6.765312500000001e-05,
+            0.0,
+            0.0,
+            0.0,
+            0.00012780625000000003
+          ],
+          "inertia_frame": "wheel_link"
+        },
+        "geometry": {
+          "nominal_base_z_m": 0.015550000000000005,
+          "base_clearance_m": 0.014750000000000003,
+          "base": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.0492
+            ],
+            "radius_m": 0.164,
+            "height_m": 0.06
+          },
+          "shell": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.0,
+              0.19
+            ],
+            "radius_m": 0.14,
+            "height_m": 0.25
+          },
+          "bumper": {
+            "shape": "cuboid",
+            "center_m": [
+              0.105,
+              0.0,
+              0.072
+            ],
+            "size_m": [
+              0.14,
+              0.285,
+              0.065
+            ]
+          },
+          "caster": {
+            "shape": "sphere",
+            "center_m": [
+              0.125,
+              0.0,
+              0.02945
+            ],
+            "radius_m": 0.025,
+            "preload_m": 0.0,
+            "collision_model": "equivalent_front_slider",
+            "mount_model": "passive_spherical_joint",
+            "contact_material": "caster"
+          },
+          "left_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "right_wheel": {
+            "shape": "cylinder",
+            "center_m": [
+              0.0,
+              -0.1165,
+              0.0402
+            ],
+            "radius_m": 0.035750000000000004,
+            "width_m": 0.015
+          },
+          "visual_mesh_respondable": false,
+          "wheel_drop_enabled": false,
+          "create3_reflex_simulated": false
+        },
+        "actuator": {
+          "response_space": "body_twist",
+          "fixed_delay_s": 0.02,
+          "uniform_jitter_s": 0.005,
+          "packet_loss_probability": 0.0,
+          "dropout_windows_s": [],
+          "left_gain": 0.96,
+          "right_gain": 0.96,
+          "left_deadband_mps": 0.003,
+          "right_deadband_mps": 0.003,
+          "time_constant_s": 0.08,
+          "acceleration_mps2": 0.05,
+          "braking_mps2": 1.8,
+          "watchdog_timeout_s": 0.5,
+          "target_force_nm": 0.05,
+          "max_linear_mps": 0.18,
+          "max_angular_radps": 1.8849555921538759
+        }
+      }
+    }
+  }
+}

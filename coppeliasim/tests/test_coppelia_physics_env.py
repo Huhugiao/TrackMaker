@@ -260,7 +260,7 @@ class CoppeliaPhysicsEnvTests(unittest.TestCase):
 
     def test_wheel_velocity_step_targets_turtlebot4_wheel_joints(self):
         env = self.make_env(sim=FakeWheelSim())
-        env.motion_model = "wheel_velocity"
+        env.motion_model = "profiled_turtlebot4_wheel_velocity"
 
         env.step(VelocityCommand(0.4, 1.0), VelocityCommand(0.2, -0.5))
 

@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trackmaker.local/schemas/digital-twin-profile-v2.1.json",
+  "title": "TrackMaker calibratable digital twin profile V2.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "profile_id",
+    "provenance",
+    "calibration_state",
+    "seed",
+    "checksum",
+    "source",
+    "simulation",
+    "materials",
+    "robots"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": "2.1"},
+    "profile_id": {"type": "string", "minLength": 1},
+    "provenance": {"enum": ["prior", "measured"]},
+    "calibration_state": {"enum": ["uncalibrated", "calibrated"]},
+    "seed": {"type": "integer"},
+    "checksum": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"]
+    },
+    "simulation": {"$ref": "#/$defs/simulation"},
+    "materials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["floor", "obstacle", "chassis", "wheel", "caster"],
+      "properties": {
+        "floor": {"$ref": "#/$defs/material"},
+        "obstacle": {"$ref": "#/$defs/material"},
+        "chassis": {"$ref": "#/$defs/material"},
+        "wheel": {"$ref": "#/$defs/material"},
+        "caster": {"$ref": "#/$defs/material"}
+      }
+    },
+    "robots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["defender", "attacker"],
+      "properties": {
+        "defender": {"$ref": "#/$defs/robot"},
+        "attacker": {"$ref": "#/$defs/robot"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"provenance": {"const": "prior"}}},
+      "then": {"properties": {"calibration_state": {"const": "uncalibrated"}}}
+    },
+    {
+      "if": {"properties": {"provenance": {"const": "measured"}}},
+      "then": {"properties": {"calibration_state": {"const": "calibrated"}}}
+    }
+  ],
+  "$defs": {
+    "finiteNumber": {"type": "number"},
+    "positiveNumber": {"type": "number", "exclusiveMinimum": 0},
+    "nonnegativeNumber": {"type": "number", "minimum": 0},
+    "vector3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/finiteNumber"}
+    },
+    "matrix3": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {"$ref": "#/$defs/finiteNumber"}
+    },
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "engine_index",
+        "engine_version",
+        "outer_step_s",
+        "physics_step_s",
+        "solver_iterations",
+        "gravity_mps2",
+        "realtime"
+      ],
+      "properties": {
+        "engine": {"const": "Bullet"},
+        "engine_index": {"const": 0},
+        "engine_version": {"type": "integer", "minimum": 0},
+        "outer_step_s": {"const": 0.05},
+        "physics_step_s": {"const": 0.005},
+        "solver_iterations": {"const": 100},
+        "gravity_mps2": {"$ref": "#/$defs/vector3"},
+        "realtime": {"type": "boolean"}
+      }
+    },
+    "material": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["friction", "restitution", "linear_damping", "angular_damping"],
+      "properties": {
+        "friction": {"$ref": "#/$defs/nonnegativeNumber"},
+        "restitution": {"$ref": "#/$defs/nonnegativeNumber"},
+        "linear_damping": {"$ref": "#/$defs/nonnegativeNumber"},
+        "angular_damping": {"$ref": "#/$defs/nonnegativeNumber"}
+      }
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mass_kg", "center_of_mass_m", "inertia_kg_m2", "inertia_frame", "aggregated_links"],
+      "properties": {
+        "mass_kg": {"$ref": "#/$defs/positiveNumber"},
+        "center_of_mass_m": {"$ref": "#/$defs/vector3"},
+        "inertia_kg_m2": {"$ref": "#/$defs/matrix3"},
+        "inertia_frame": {"const": "base_link"},
+        "aggregated_links": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "wheel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mass_kg_each", "inertia_kg_m2_each", "inertia_frame"],
+      "properties": {
+        "mass_kg_each": {"$ref": "#/$defs/positiveNumber"},
+        "inertia_kg_m2_each": {"$ref": "#/$defs/matrix3"},
+        "inertia_frame": {"const": "wheel_link"}
+      }
+    },
+    "casterInertial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mass_kg", "center_of_mass_m", "inertia_kg_m2", "inertia_frame"],
+      "properties": {
+        "mass_kg": {"$ref": "#/$defs/positiveNumber"},
+        "center_of_mass_m": {"$ref": "#/$defs/vector3"},
+        "inertia_kg_m2": {"$ref": "#/$defs/matrix3"},
+        "inertia_frame": {"const": "caster_link"}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nominal_base_z_m",
+        "base_clearance_m",
+        "base",
+        "shell",
+        "bumper",
+        "caster",
+        "left_wheel",
+        "right_wheel",
+        "visual_mesh_respondable",
+        "wheel_drop_enabled",
+        "create3_reflex_simulated"
+      ],
+      "properties": {
+        "nominal_base_z_m": {"$ref": "#/$defs/finiteNumber"},
+        "base_clearance_m": {"$ref": "#/$defs/nonnegativeNumber"},
+        "base": {"$ref": "#/$defs/cylinder"},
+        "shell": {"$ref": "#/$defs/cylinder"},
+        "bumper": {"$ref": "#/$defs/cuboid"},
+        "caster": {"$ref": "#/$defs/sphere"},
+        "left_wheel": {"$ref": "#/$defs/wheelGeometry"},
+        "right_wheel": {"$ref": "#/$defs/wheelGeometry"},
+        "visual_mesh_respondable": {"const": false},
+        "wheel_drop_enabled": {"const": false},
+        "create3_reflex_simulated": {"const": false}
+      }
+    },
+    "cylinder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "center_m", "radius_m", "height_m"],
+      "properties": {
+        "shape": {"const": "cylinder"},
+        "center_m": {"$ref": "#/$defs/vector3"},
+        "radius_m": {"$ref": "#/$defs/positiveNumber"},
+        "height_m": {"$ref": "#/$defs/positiveNumber"}
+      }
+    },
+    "cuboid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "center_m", "size_m"],
+      "properties": {
+        "shape": {"const": "cuboid"},
+        "center_m": {"$ref": "#/$defs/vector3"},
+        "size_m": {"$ref": "#/$defs/vector3"}
+      }
+    },
+    "sphere": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "center_m", "radius_m", "preload_m", "collision_model", "mount_model", "contact_material"],
+      "properties": {
+        "shape": {"const": "sphere"},
+        "center_m": {"$ref": "#/$defs/vector3"},
+        "radius_m": {"$ref": "#/$defs/positiveNumber"},
+        "preload_m": {"$ref": "#/$defs/nonnegativeNumber"},
+        "collision_model": {"const": "equivalent_front_slider"},
+        "mount_model": {"const": "passive_spherical_joint"},
+        "contact_material": {"const": "caster"}
+      }
+    },
+    "wheelGeometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shape", "center_m", "radius_m", "width_m"],
+      "properties": {
+        "shape": {"const": "cylinder"},
+        "center_m": {"$ref": "#/$defs/vector3"},
+        "radius_m": {"$ref": "#/$defs/positiveNumber"},
+        "width_m": {"$ref": "#/$defs/positiveNumber"}
+      }
+    },
+    "actuator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "response_space",
+        "max_linear_mps",
+        "max_angular_radps",
+        "fixed_delay_s",
+        "uniform_jitter_s",
+        "packet_loss_probability",
+        "dropout_windows_s",
+        "left_gain",
+        "right_gain",
+        "left_deadband_mps",
+        "right_deadband_mps",
+        "time_constant_s",
+        "acceleration_mps2",
+        "braking_mps2",
+        "watchdog_timeout_s",
+        "target_force_nm"
+      ],
+      "properties": {
+        "response_space": {"const": "body_twist"},
+        "max_linear_mps": {"$ref": "#/$defs/positiveNumber"},
+        "max_angular_radps": {"$ref": "#/$defs/positiveNumber"},
+        "fixed_delay_s": {"$ref": "#/$defs/nonnegativeNumber"},
+        "uniform_jitter_s": {"$ref": "#/$defs/nonnegativeNumber"},
+        "packet_loss_probability": {"type": "number", "minimum": 0, "maximum": 1},
+        "dropout_windows_s": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {"$ref": "#/$defs/nonnegativeNumber"}
+          }
+        },
+        "left_gain": {"$ref": "#/$defs/nonnegativeNumber"},
+        "right_gain": {"$ref": "#/$defs/nonnegativeNumber"},
+        "left_deadband_mps": {"$ref": "#/$defs/nonnegativeNumber"},
+        "right_deadband_mps": {"$ref": "#/$defs/nonnegativeNumber"},
+        "time_constant_s": {"$ref": "#/$defs/nonnegativeNumber"},
+        "acceleration_mps2": {"$ref": "#/$defs/nonnegativeNumber"},
+        "braking_mps2": {"$ref": "#/$defs/nonnegativeNumber"},
+        "watchdog_timeout_s": {"$ref": "#/$defs/positiveNumber"},
+        "target_force_nm": {"$ref": "#/$defs/positiveNumber"}
+      }
+    },
+    "robot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mass_kg",
+        "center_of_mass_m",
+        "inertia_kg_m2",
+        "inertia_frame",
+        "wheel_radius_m",
+        "wheel_separation_m",
+        "chassis",
+        "caster",
+        "wheel",
+        "geometry",
+        "actuator"
+      ],
+      "properties": {
+        "mass_kg": {"$ref": "#/$defs/positiveNumber"},
+        "center_of_mass_m": {"$ref": "#/$defs/vector3"},
+        "inertia_kg_m2": {"$ref": "#/$defs/matrix3"},
+        "inertia_frame": {"const": "base_link"},
+        "wheel_radius_m": {"$ref": "#/$defs/positiveNumber"},
+        "wheel_separation_m": {"$ref": "#/$defs/positiveNumber"},
+        "chassis": {"$ref": "#/$defs/aggregate"},
+        "caster": {"$ref": "#/$defs/casterInertial"},
+        "wheel": {"$ref": "#/$defs/wheel"},
+        "geometry": {"$ref": "#/$defs/geometry"},
+        "actuator": {"$ref": "#/$defs/actuator"}
+      }
+    }
+  }
+}

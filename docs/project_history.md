@@ -1,6 +1,6 @@
 # TrackMaker 项目历史与主线
 
-最后更新：2026-08-14
+最后更新：2026-08-15
 
 本文档只记录需要长期保留的研究结论、正式资产和当前工程方向。详细实验过程由 Git 历史保存，
 失败分支和原始运行数据不长期堆放在主工作树。
@@ -39,6 +39,11 @@
   cases 中 frozen6 Protect 成功率提高 `3.60pp`，paired gain/loss 为 `16/1`；证据主要来自两个
   程序化 Attacker，两个 RL Attacker 的独立贡献尚未确认。因 checkpoint 训练配方不完全同构，
   该结果只支持启动同配方 full-pool/leave-out 受控重训，不支持直接作因果声明。
+- 2026-08-15：CoppeliaSim/TurtleBot4 验证链升级为可标定数字孪生 V2.1。场景由 URDF mass/CoM/inertia、
+  独立 drive wheels、passive spherical caster、Bullet 5 ms physics step 和 profile-driven actuator 生成；
+  runtime profile introspection、五输入 fail-closed timing、joint target/actual、contact、diagnostics、标定拟合
+  和 rosbag/MP4 形成闭环。默认 profile 仍为 `prior/uncalibrated`，本机仿真拟合出的
+  `measured` profile 不代表实机测量，也不进入正式训练。
 
 ## Chapter 2 复现边界
 
@@ -83,5 +88,6 @@
 
 - 主工作树保留 active PPO trainer、checkpoint-backed policy pool、固定种子评测、正式 A* HRL 推理/评测和精选模型。
 - BC、旧 pilot、写死 continuation/gate 的 launcher、失败 SAC 和废弃 controller 由 Git 历史保存，不继续维护。
-- CoppeliaSim 只保留 scene、URDF、核心环境适配、连接 smoke 和现有 checkpoint rollout。
+- CoppeliaSim 保留 V2.1 profile/schema、可重复 scene builder、dense/calibration scene、ROS 2 bridge、
+  标定/验证工具和冻结 checkpoint rollout；它是可选部署验证模块，不是正式训练依赖。
 - 当前执行方案见 `docs/lower_policy_generation_plan.md`。

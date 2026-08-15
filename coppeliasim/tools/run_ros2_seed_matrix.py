@@ -71,9 +71,25 @@ def main() -> int:
         payload = json.loads(episode_json.read_text(encoding="utf-8"))
         records = payload.get("records", [])
         mean_speeds = {}
+        support_fraction = {}
+        chassis_floor_seen = {}
         for role in ("defender", "attacker"):
             samples = [float(row[f"{role}_cmd"]["linear_mps"]) for row in records]
             mean_speeds[role] = sum(samples) / len(samples) if samples else 0.0
+            contacts = [
+                row.get("actuator_state", {}).get(role, {}).get("contact", {})
+                for row in records
+            ]
+            support_fraction[role] = (
+                sum(bool(contact.get("support_ok")) for contact in contacts) / len(contacts)
+                if contacts
+                else 0.0
+            )
+            chassis_floor_seen[role] = any(
+                bool(contact.get("chassis_floor")) for contact in contacts
+            )
+        timings = [row.get("input_timing", {}) for row in records]
+        profile = payload.get("profile_metadata", {})
         episodes.append(
             {
                 "seed": seed,
@@ -83,15 +99,30 @@ def main() -> int:
                 "elapsed_s": payload["elapsed_s"],
                 "skill_counts": payload["skill_counts"],
                 "mean_linear_mps": mean_speeds,
+                "support_fraction": support_fraction,
+                "chassis_floor_seen": chassis_floor_seen,
+                "all_inputs_fresh": bool(timings) and all(bool(item.get("fresh")) for item in timings),
+                "max_input_skew_s": max((float(item.get("skew_s", 0.0)) for item in timings), default=0.0),
                 "attacker_collision_steps": sum(bool(row.get("attacker_collision")) for row in records),
                 "controller_env_obstacle_mask": payload["controller_env_obstacle_mask"],
                 "action_shield": payload["action_shield"],
+                "create3_reflexes_expected": payload.get("create3_reflexes_expected"),
+                "profile": {
+                    key: profile.get(key)
+                    for key in ("profile_id", "provenance", "calibration_state", "checksum")
+                },
                 "episode_json": str(episode_json),
             }
         )
         print(f"  -> {payload['reason']} at step {payload['steps']}", flush=True)
 
     reasons = Counter(row["reason"] for row in episodes)
+    profile_checksums = sorted({str(row["profile"]["checksum"]) for row in episodes})
+    support_values = [
+        float(value)
+        for row in episodes
+        for value in row["support_fraction"].values()
+    ]
     summary = {
         "paired_seeds": [row["seed"] for row in episodes],
         "episode_count": len(episodes),
@@ -105,8 +136,23 @@ def main() -> int:
         ) / len(episodes),
         "controller_env_obstacle_mask": False,
         "action_shield": False,
+        "create3_reflexes_expected": False,
+        "all_inputs_fresh": all(row["all_inputs_fresh"] for row in episodes),
+        "max_input_skew_s": max(row["max_input_skew_s"] for row in episodes),
+        "profile_checksums": profile_checksums,
+        "minimum_support_fraction": min(support_values),
+        "chassis_floor_episode_rate": sum(
+            any(row["chassis_floor_seen"].values()) for row in episodes
+        ) / len(episodes),
         "episodes": episodes,
     }
+    summary["smoke_passed"] = bool(
+        summary["all_inputs_fresh"]
+        and len(profile_checksums) == 1
+        and all(row["create3_reflexes_expected"] is False for row in episodes)
+        and summary["minimum_support_fraction"] >= 0.95
+        and summary["chassis_floor_episode_rate"] == 0.0
+    )
     summary_path = output / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"wrote {summary_path}")

@@ -13,6 +13,7 @@ from coppelia_env.ros2_deployment import (
     LinearSlewLimiter,
     Pose2D,
     build_policy_observations,
+    deployment_input_timing,
     inputs_are_fresh,
     normalize_laser_scan,
     normalized_action_to_command,
@@ -140,6 +141,20 @@ class Ros2DeploymentTests(unittest.TestCase):
         self.assertAlmostEqual(quaternion_to_yaw(*quaternion), -1.2)
         with self.assertRaises(ValueError):
             quaternion_to_yaw(0.0, 0.0, 0.0, 0.0)
+
+    def test_five_input_timing_rejects_missing_stale_and_skewed_samples(self):
+        fresh = deployment_input_timing([9.96, 9.97, 9.98, 9.99, 10.0], now=10.0, config=self.config)
+        self.assertTrue(fresh.fresh)
+        self.assertEqual(fresh.reason, "fresh")
+        self.assertEqual(
+            deployment_input_timing([9.94, 9.97, 9.98, 9.99, 10.0], now=10.0, config=self.config).reason,
+            "skew",
+        )
+        self.assertEqual(
+            deployment_input_timing([9.0] * 5, now=10.0, config=self.config).reason,
+            "stale",
+        )
+        self.assertEqual(deployment_input_timing([10.0] * 4, now=10.0, config=self.config).reason, "missing")
 
     def test_paired_spawn_is_deterministic_and_physically_clear(self):
         manifest = Path(__file__).resolve().parents[1] / "scenes/trackmaker_turtlebot4_scene.json"

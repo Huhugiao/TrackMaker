@@ -1,6 +1,6 @@
 # 下层攻防策略生成计划
 
-最后更新：2026-08-14
+最后更新：2026-08-15
 
 ## 当前研究范围
 
@@ -160,5 +160,9 @@ oracle union 只表示覆盖上界，不等于在线切换器的可实现性能�
 
 - 标准评测复用 `eval/vs.py`；专项矩阵必须保持相同终局和重置契约。
 - 保留通用 heuristic registry、Attacker PPO、Defender PPO、checkpoint loader、paired evaluation 和 CoppeliaSim 验证链。
+- CoppeliaSim 数字孪生 V2.1 只承担冻结策略的可重复部署、执行器/接触诊断和标定工具链验证；默认 profile
+  为显式 `prior/uncalibrated`，raw 运行关闭 controller/env obstacle mask、action shield 和仿真 Create 3
+  reflex。其 actuator plant 参数不回写 Gym 训练配置，不改变 `A=2.0`、`D=2.6`、Attacker
+  `0.486 m/s²` policy slew 或现有 checkpoint。
 - active 模型目录只保留正式 checkpoint、必要 initializer、run config 和紧凑证据。
 - 下层策略库和交叉矩阵稳定之前，不新增上层切换训练或 solver 依赖。

@@ -28,7 +28,13 @@ rm -rf "${PACKAGE}"
 rm -rf "${WORKSPACE}/build/sim_ros2_interface" "${WORKSPACE}/install/sim_ros2_interface"
 cp -a "${SOURCE}" "${PACKAGE}"
 
-for interface in geometry_msgs/msg/PoseStamped rosgraph_msgs/msg/Clock; do
+for interface in \
+  geometry_msgs/msg/PoseStamped \
+  rosgraph_msgs/msg/Clock \
+  sensor_msgs/msg/JointState \
+  diagnostic_msgs/msg/DiagnosticArray \
+  diagnostic_msgs/msg/DiagnosticStatus \
+  diagnostic_msgs/msg/KeyValue; do
   if ! grep -qxF "${interface}" "${PACKAGE}/meta/interfaces.txt"; then
     sed -i "\$a${interface}" "${PACKAGE}/meta/interfaces.txt"
   fi

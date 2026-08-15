@@ -17,7 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from coppelia_env.ros2_deployment import sample_fixed_spawn  # noqa: E402
 
 
-DEFAULT_MANIFEST = PROJECT_ROOT / "coppeliasim/scenes/trackmaker_turtlebot4_scene.json"
+DEFAULT_MANIFEST = PROJECT_ROOT / "coppeliasim/scenes/trackmaker_turtlebot4_v2_1_scene.json"
 
 
 def main() -> int:
